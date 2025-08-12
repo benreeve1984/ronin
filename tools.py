@@ -66,7 +66,8 @@ def list_files(root: Path, pattern: str = "*") -> Dict:
     return {
         "root": str(root),
         "pattern": pattern,
-        "entries": sorted(entries)[:200]  # Limit results
+        "entries": sorted(entries)[:200],  # Limit results
+        "count": len(entries)
     }
 
 def read_file(path: Path) -> str:
@@ -86,14 +87,23 @@ def read_file(path: Path) -> str:
     
     # Read with size limit for safety
     data = path.read_bytes()[:MAX_READ_BYTES]
-    return data.decode("utf-8", errors="replace")
+    text = data.decode("utf-8", errors="replace")
+    
+    # Add line count info if truncated
+    if len(data) == MAX_READ_BYTES:
+        text += f"\n\n[TRUNCATED - file exceeds {MAX_READ_BYTES} bytes]"
+    
+    return text
 
-def create_file(path: Path, content: str) -> None:
+def create_file(path: Path, content: str) -> Dict:
     """Create a new file (fails if exists).
     
     Args:
         path: Absolute path for new file
         content: Initial file content
+        
+    Returns:
+        Dict with creation details
         
     Raises:
         FileExistsError: If file already exists
@@ -106,12 +116,21 @@ def create_file(path: Path, content: str) -> None:
     
     # Write the file
     path.write_text(content, encoding="utf-8")
+    
+    return {
+        "created": str(path),
+        "size": len(content),
+        "lines": content.count('\n') + 1
+    }
 
-def delete_file(path: Path) -> None:
+def delete_file(path: Path) -> Dict:
     """Delete a file.
     
     Args:
         path: Absolute path to file to delete
+        
+    Returns:
+        Dict with deletion details
         
     Raises:
         FileNotFoundError: If file doesn't exist
@@ -119,10 +138,18 @@ def delete_file(path: Path) -> None:
     if not path.exists():
         raise FileNotFoundError(f"File not found: {path}")
     
+    # Get info before deletion
+    size = path.stat().st_size
+    
     path.unlink()
+    
+    return {
+        "deleted": str(path),
+        "size": size
+    }
 
 def modify_file(path: Path, anchor: str = "", action: str = "after", 
-                content: str = "", occurrence: int = 1) -> Tuple[str, str]:
+                content: str = "", occurrence: int = 1) -> Tuple[str, str, Dict]:
     """Modify a file using anchor-based operations.
     
     This is the universal modification function that handles all edit operations
@@ -136,7 +163,7 @@ def modify_file(path: Path, anchor: str = "", action: str = "after",
         occurrence: Which occurrence to modify (1=first, -1=last, 0=all)
         
     Returns:
-        Tuple of (old_content, new_content) for diff generation
+        Tuple of (old_content, new_content, change_info)
         
     Raises:
         FileNotFoundError: If file doesn't exist
@@ -170,14 +197,28 @@ def modify_file(path: Path, anchor: str = "", action: str = "after",
     # Read current content
     old_content = read_file(path)
     
+    # Remove truncation marker if present
+    if "[TRUNCATED" in old_content:
+        old_content = old_content.split("[TRUNCATED")[0]
+    
+    change_info = {
+        "file": str(path),
+        "action": action,
+        "anchor": anchor if anchor else "[file boundaries]",
+        "occurrence": occurrence
+    }
+    
     # Handle empty anchor (beginning/end of file)
     if not anchor:
         if action == "before":
             new_content = content + old_content
+            change_info["position"] = "beginning"
         elif action == "after":
             new_content = old_content + content
+            change_info["position"] = "end"
         else:  # replace
             new_content = content
+            change_info["position"] = "entire file"
     else:
         # Find anchor occurrences
         indices = []
@@ -192,13 +233,18 @@ def modify_file(path: Path, anchor: str = "", action: str = "after",
         if not indices:
             raise ValueError(f"Anchor not found: {anchor!r}")
         
+        change_info["found_occurrences"] = len(indices)
+        
         # Select which occurrence(s) to modify
         if occurrence == 0:  # All occurrences
             targets = indices
+            change_info["modified_occurrences"] = "all"
         elif occurrence == -1:  # Last occurrence
             targets = [indices[-1]]
+            change_info["modified_occurrences"] = "last"
         elif 0 < occurrence <= len(indices):  # Specific occurrence
             targets = [indices[occurrence - 1]]
+            change_info["modified_occurrences"] = f"#{occurrence}"
         else:
             raise ValueError(f"Invalid occurrence {occurrence} (found {len(indices)} matches)")
         
@@ -223,27 +269,12 @@ def modify_file(path: Path, anchor: str = "", action: str = "after",
     # Write the modified content
     path.write_text(new_content, encoding="utf-8")
     
-    return (old_content, new_content)
-
-# Legacy compatibility functions (can be removed once migration complete)
-def validate_and_resolve(root: Path, rel_path: str) -> Path:
-    """Legacy name for validate_path."""
-    return validate_path(root, rel_path)
-
-def list_dir_entries(root: Path, rel_dir: str = ".", glob: str = None, max_entries: int = 200) -> Dict:
-    """Legacy name for list_files."""
-    pattern = glob if glob else "*"
-    return list_files(root, pattern)
-
-def read_text_file(path: Path, max_bytes: int = MAX_READ_BYTES) -> str:
-    """Legacy name for read_file."""
-    return read_file(path)
-
-def write_text_file(path: Path, content: str, overwrite: bool = False) -> None:
-    """Legacy function - use create_file or modify_file instead."""
-    if path.exists() and not overwrite:
-        raise FileExistsError(f"File exists: {path}")
-    if not path.exists():
-        create_file(path, content)
-    else:
-        modify_file(path, "", "replace", content)
+    # Add size/line change info
+    change_info["old_size"] = len(old_content)
+    change_info["new_size"] = len(new_content)
+    change_info["old_lines"] = old_content.count('\n') + 1
+    change_info["new_lines"] = new_content.count('\n') + 1
+    change_info["size_change"] = len(new_content) - len(old_content)
+    change_info["line_change"] = change_info["new_lines"] - change_info["old_lines"]
+    
+    return (old_content, new_content, change_info)
