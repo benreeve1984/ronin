@@ -5,7 +5,7 @@ import sys  # For system operations like exit codes
 import pathlib  # For path handling
 
 # Import the main execution function from agent.py
-from .agent import run_once
+from agent import run_once
 
 def main():
     """Main entry point for the Ronin CLI application.

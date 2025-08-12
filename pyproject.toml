@@ -12,7 +12,7 @@ authors = [
 dependencies = ["anthropic>=0.29"]
 
 [project.scripts]
-Ronin = "ronin.cli:main"
+Ronin = "cli:main"
 
-[tool.setuptools.packages.find]
-include = ["ronin*"]
+[tool.setuptools]
+py-modules = ["agent", "cli", "tools"]

@@ -1,7 +1,7 @@
 # Simplified Ronin agent using minimal, powerful tools
 import difflib, anthropic
 from pathlib import Path
-from .tools import (
+from tools import (
     ALLOWED_EXTS, validate_path, list_files,
     read_file, create_file, delete_file, modify_file
 )
