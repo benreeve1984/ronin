@@ -27,10 +27,10 @@ def main():
     # This creates the sandbox boundary - Ronin can't access files outside this
     # Default "." means current working directory
     p.add_argument("--root", default=".", help="Project root (sandbox). Default: cwd")
-    # OPTIONAL: Auto-approve all file changes without asking
+    # OPTIONAL: Ask for confirmation before applying changes
     # action="store_true" means it's a flag (present = True, absent = False)
-    # Useful for automation but risky - changes happen immediately!
-    p.add_argument("--yes", action="store_true", help="Apply writes without confirmation")
+    # DEFAULT: Auto-approve is ON. Use --no-auto-yes to require confirmations
+    p.add_argument("--no-auto-yes", action="store_true", help="Ask for confirmation before changes (default: auto-approve)")
     # OPTIONAL: Preview mode - shows what would happen without doing it
     # Great for testing or understanding what Ronin will do
     p.add_argument("--plan", action="store_true", help="Dry-run mode (no writes)")
@@ -46,19 +46,25 @@ def main():
     # Parse the command-line arguments into a namespace object
     args = p.parse_args()
 
-    # Validate that user provided a prompt
-    if not args.prompt:
-        # Print usage help to stderr (error output stream)
-        print('Usage: Ronin "your prompt here"', file=sys.stderr)
-        # Exit with code 2 (conventional for command-line usage errors)
-        sys.exit(2)
-
     # Check for Claude API key in environment variables
     # This key authenticates your requests to Claude AI
     if not os.getenv("ANTHROPIC_API_KEY"):
         print("Error: ANTHROPIC_API_KEY is not set", file=sys.stderr)
         # Exit with code 2 (configuration error)
         sys.exit(2)
+
+    # If no prompt provided, enter interactive mode
+    if not args.prompt:
+        from chat_mode import interactive_mode
+        # Convert the root to Path and run interactive mode
+        root = pathlib.Path(args.root).resolve()
+        interactive_mode(
+            model=args.model,
+            root=root,
+            auto_yes=not args.no_auto_yes,  # Default is True unless flag is set
+            max_steps=args.max_steps
+        )
+        sys.exit(0)
 
     # Combine multiple prompt words into a single string
     # Example: ["Add", "a", "TODO"] becomes "Add a TODO"
@@ -73,7 +79,7 @@ def main():
         prompt=prompt,  # User's request
         model=args.model,  # Which Claude model to use
         root=root,  # Directory to work in (sandbox)
-        auto_yes=args.yes,  # Auto-approve changes?
+        auto_yes=not args.no_auto_yes,  # Auto-approve changes by default
         dry_run=args.plan,  # Preview mode?
         max_steps=args.max_steps,  # Maximum tool operations
     )
