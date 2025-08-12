@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ronin-agent"
+version = "0.1.0"
+description = "Minimal CLI LLM agent"
+authors = [
+    { name = "Ben Reeve", email = "ben@reeve.one" }
+]
+dependencies = ["anthropic>=0.29"]
+
+[project.scripts]
+Ronin = "ronin.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["ronin*"]
