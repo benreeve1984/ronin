@@ -1,43 +1,72 @@
-# Interactive chat mode for Ronin
+# Interactive Chat Mode for Ronin
+# =================================
+# This module provides interactive conversation capabilities with Ronin.
+# Users can have multi-turn conversations with file context persistence.
+
 import os
 import sys
-import json
 from pathlib import Path
-from typing import List, Dict, Tuple
+from typing import List, Dict
 import anthropic
 from datetime import datetime
 
-from agent import run_once, SYSTEM_PROMPT, tool_specs, show_diff
-from tools import (
-    ALLOWED_EXTS, validate_path, list_files,
-    read_file, create_file, delete_file, modify_file, search_files
-)
+from tool_registry import get_tool_specs
+from tool_executor import ToolExecutor
+from prompts import get_system_prompt, FILE_CONTEXT_TEMPLATE, format_prompt
 
-# Token limits (approximate - we'll use character count as proxy)
+# Token limits (approximate - using character count as proxy)
 MAX_CONTEXT_TOKENS = 140_000
-CHARS_PER_TOKEN = 4  # Rough estimate
+CHARS_PER_TOKEN = 4  # Rough estimate: 1 token ≈ 4 characters
 
 class FileMemory:
-    """Track files read during the session."""
+    """
+    Track files read during the session for context awareness.
+    
+    This class maintains an LRU (Least Recently Used) cache of files
+    that have been read during the conversation. Files are kept in
+    context to help Claude understand what's been discussed.
+    
+    Attributes:
+        files: Dictionary mapping file paths to their contents
+        access_order: List tracking access order for LRU eviction
+    """
     
     def __init__(self):
-        self.files: Dict[str, str] = {}  # path -> content
+        """Initialize empty file memory."""
+        self.files: Dict[str, str] = {}  # path -> content mapping
         self.access_order: List[str] = []  # LRU tracking
         
     def add_file(self, path: str, content: str):
-        """Add or update a file in memory."""
+        """
+        Add or update a file in memory.
+        
+        Args:
+            path: File path as string
+            content: File contents
+            
+        Note:
+            If file already exists, it's moved to end of access order (most recent)
+        """
         if path in self.files:
             self.access_order.remove(path)
         self.files[path] = content
         self.access_order.append(path)
         
     def get_context(self, max_chars: int) -> str:
-        """Get file context within size limit."""
+        """
+        Get file context within size limit.
+        
+        Args:
+            max_chars: Maximum characters to include
+            
+        Returns:
+            Formatted string with file contents, most recent first
+        """
         if not self.files:
             return ""
             
-        context = "\n=== FILES IN CONTEXT ===\n"
-        total_chars = len(context)
+        context_parts = []
+        total_chars = 0
         
         # Add files in reverse access order (most recent first)
         for path in reversed(self.access_order):
@@ -47,15 +76,47 @@ class FileMemory:
             if total_chars + len(file_section) > max_chars:
                 break
                 
-            context += file_section
+            context_parts.append(file_section)
             total_chars += len(file_section)
             
-        return context if len(self.files) > 0 else ""
+        if context_parts:
+            file_context = "".join(context_parts)
+            return format_prompt(FILE_CONTEXT_TEMPLATE, file_context=file_context)
+        return ""
 
 class ChatSession:
-    """Interactive chat session with Ronin."""
+    """
+    Manages an interactive chat session with Ronin.
+    
+    This class handles:
+    - Multi-turn conversations with Claude
+    - File memory management
+    - Special commands (/, help, etc.)
+    - Context size management
+    - Tool execution through ToolExecutor
+    
+    Attributes:
+        client: Anthropic API client
+        model: Claude model to use
+        root: Sandbox root directory
+        auto_yes: Whether to auto-approve changes
+        max_steps: Max tool operations per turn
+        messages: Conversation history
+        file_memory: Files read during session
+        executor: Tool executor instance
+        total_operations: Total tool uses in session
+    """
     
     def __init__(self, model: str, root: Path, auto_yes: bool, max_steps: int):
+        """
+        Initialize a new chat session.
+        
+        Args:
+            model: Claude model name
+            root: Sandbox root directory
+            auto_yes: Auto-approve changes if True
+            max_steps: Max operations per turn
+        """
         self.client = anthropic.Anthropic()
         self.model = model
         self.root = root
@@ -63,36 +124,41 @@ class ChatSession:
         self.max_steps = max_steps
         self.messages = []
         self.file_memory = FileMemory()
+        self.executor = ToolExecutor(root, auto_yes, dry_run=False, file_memory=self.file_memory)
         self.total_operations = 0
         
     def get_system_prompt(self) -> str:
-        """Build system prompt with file context."""
-        base_prompt = SYSTEM_PROMPT + """
-
-You are in INTERACTIVE MODE. The user can have multiple exchanges with you.
-Remember what was discussed and what files were created/modified earlier in the conversation.
-"""
+        """
+        Build system prompt with file context.
         
-        # Add file context (reserve space for conversation)
-        max_file_context = MAX_CONTEXT_TOKENS * CHARS_PER_TOKEN // 3  # Use 1/3 for files
+        Returns:
+            Complete system prompt including any files in memory
+        """
+        # Reserve 1/3 of context for files
+        max_file_context = MAX_CONTEXT_TOKENS * CHARS_PER_TOKEN // 3
         file_context = self.file_memory.get_context(max_file_context)
         
-        if file_context:
-            return base_prompt + "\n" + file_context
-        return base_prompt
+        return get_system_prompt(interactive=True, file_context=file_context)
         
     def process_input(self, user_input: str) -> bool:
-        """Process one user input. Returns False to exit."""
+        """
+        Process one user input.
         
+        Args:
+            user_input: User's message
+            
+        Returns:
+            False to exit, True to continue
+        """
         # Check for exit commands
         if user_input.lower() in ('exit', 'quit', 'bye', '/exit', '/quit'):
             return False
             
-        # Check for special commands
+        # Check for special slash commands
         if user_input.startswith('/'):
             return self.handle_command(user_input)
             
-        # Add user message
+        # Add user message to conversation
         self.messages.append({"role": "user", "content": user_input})
         
         # Process with Claude
@@ -104,7 +170,7 @@ Remember what was discussed and what files were created/modified earlier in the 
                 resp = self.client.messages.create(
                     model=self.model,
                     system=self.get_system_prompt(),
-                    tools=tool_specs(self.root),
+                    tools=get_tool_specs(self.root),
                     messages=self.messages,
                     max_tokens=2000,
                 )
@@ -147,245 +213,43 @@ Remember what was discussed and what files were created/modified earlier in the 
         return True
         
     def process_tools(self, tool_uses) -> List[Dict]:
-        """Process tool requests and track file access."""
+        """
+        Process tool requests from Claude.
+        
+        Args:
+            tool_uses: List of tool use requests from Claude
+            
+        Returns:
+            List of tool results to send back to Claude
+        """
         results = []
         
-        for tu in tool_uses:
-            name = tu.name
-            args = dict(tu.input or {})
+        for tool_use in tool_uses:
+            tool_name = tool_use.name
+            args = dict(tool_use.input or {})
             
-            print(f"\n🔧 Executing: {name}", end="")
-            if name == "search_files":
-                text = args.get("text", "?")
-                print(f" (searching for: '{text[:30]}...')" if len(text) > 30 else f" (searching for: '{text}')")
-            elif name == "modify_file":
-                action = args.get("action", "?")
-                anchor = args.get("anchor", "")
-                if anchor:
-                    print(f" ({action} anchor: '{anchor[:30]}...')" if len(anchor) > 30 else f" ({action} anchor: '{anchor}')")
-                else:
-                    print(f" ({action} file boundaries)")
-            elif name in ("read_file", "create_file", "delete_file"):
-                print(f" ({args.get('path', '?')})")
-            else:
-                print()
+            # Execute through our centralized executor
+            output, success = self.executor.execute(tool_name, args)
             
-            try:
-                if name == "list_files":
-                    pattern = args.get("pattern", "*")
-                    result = list_files(self.root, pattern)
-                    
-                    # Format result
-                    if "error" in result:
-                        output = f"Error: {result['error']}"
-                    elif result.get("files"):
-                        output = f"Found {result['count']} files matching '{pattern}':\n"
-                        for f in result['files'][:20]:
-                            output += f"  - {f['path']} ({f['lines']} lines, {f['size_display']})\n"
-                        if result['count'] > 20:
-                            output += f"  ... and {result['count'] - 20} more"
-                    else:
-                        output = f"No files found matching '{pattern}'"
-                    
-                    results.append({
-                        "type": "tool_result",
-                        "tool_use_id": tu.id,
-                        "content": output
-                    })
-                    
-                elif name == "read_file":
-                    p = validate_path(self.root, args["path"])
-                    start_line = int(args.get("start_line", 1))
-                    end_line = int(args.get("end_line")) if args.get("end_line") else None
-                    
-                    content = read_file(p, start_line, end_line)
-                    
-                    # Track file in memory (only for full reads)
-                    if start_line == 1 and end_line is None:
-                        self.file_memory.add_file(str(p), content)
-                    
-                    # Add helpful context for full reads
-                    if start_line == 1 and end_line is None:
-                        lines = content.count('\n') + 1
-                        output = f"File: {p} ({lines} lines, {len(content)} bytes)\n\n{content}"
-                    else:
-                        output = f"File: {p}\n{content}"
-                    
-                    results.append({
-                        "type": "tool_result",
-                        "tool_use_id": tu.id,
-                        "content": output
-                    })
-                    
-                elif name == "create_file":
-                    p = validate_path(self.root, args["path"])
-                    content = args["content"]
-                    
-                    if not self.auto_yes:
-                        print(f"\n📝 Create new file: {p}")
-                        print(f"   Content preview: {content[:100]}..." if len(content) > 100 else f"   Content: {content}")
-                        if input("   Create? [y/N]: ").lower() not in ("y", "yes"):
-                            results.append({
-                                "type": "tool_result",
-                                "tool_use_id": tu.id,
-                                "content": "User declined file creation",
-                                "is_error": True
-                            })
-                            continue
-                    
-                    info = create_file(p, content)
-                    
-                    # Track new file
-                    self.file_memory.add_file(str(p), content)
-                    
-                    print(f"  ✓ Created: {info['created']} ({info['lines']} lines)")
-                    results.append({
-                        "type": "tool_result",
-                        "tool_use_id": tu.id,
-                        "content": f"Created {info['created']} ({info['lines']} lines, {info['size']} bytes)"
-                    })
-                    
-                elif name == "delete_file":
-                    p = validate_path(self.root, args["path"])
-                    
-                    if not self.auto_yes:
-                        if input(f"\n🗑️  DELETE {p}? [y/N]: ").lower() not in ("y", "yes"):
-                            results.append({
-                                "type": "tool_result",
-                                "tool_use_id": tu.id,
-                                "content": "User declined deletion",
-                                "is_error": True
-                            })
-                            continue
-                    
-                    info = delete_file(p)
-                    
-                    # Remove from memory
-                    if str(p) in self.file_memory.files:
-                        del self.file_memory.files[str(p)]
-                        self.file_memory.access_order.remove(str(p))
-                    
-                    print(f"  ✓ Deleted: {info['deleted']}")
-                    results.append({
-                        "type": "tool_result",
-                        "tool_use_id": tu.id,
-                        "content": f"Deleted {info['deleted']} ({info['size']} bytes)"
-                    })
-                    
-                elif name == "search_files":
-                    text = args["text"]
-                    pattern = args.get("pattern", "*")
-                    case_sensitive = args.get("case_sensitive", False)
-                    context_lines = int(args.get("context_lines", 2))
-                    
-                    result = search_files(self.root, text, pattern, case_sensitive, context_lines)
-                    
-                    # Format human-readable output
-                    if result["total_matches"] == 0:
-                        output = f"No matches found for '{text}'"
-                    else:
-                        output = f"Found '{text}' {result['total_matches']} times in {result['files_with_matches']} files:\n\n"
-                        
-                        for file_result in result["matches"]:
-                            output += f"{file_result['file']}:\n"
-                            for match in file_result["matches"]:
-                                # Show context
-                                if context_lines > 0 and "before" in match:
-                                    for i, line in enumerate(match["before"], match["line_number"] - len(match["before"])):
-                                        output += f"  {i:4}: {line}\n"
-                                
-                                # Highlight the matching line
-                                output += f"→ {match['line_number']:4}: {match['line']}\n"
-                                
-                                if context_lines > 0 and "after" in match:
-                                    for i, line in enumerate(match["after"], match["line_number"] + 1):
-                                        output += f"  {i:4}: {line}\n"
-                                
-                                if match.get("truncated"):
-                                    output += "  ... (more matches truncated)\n"
-                                output += "\n"
-                    
-                    print(f"  ✓ Search complete: {result['total_matches']} matches in {result['files_with_matches']} files")
-                    results.append({
-                        "type": "tool_result",
-                        "tool_use_id": tu.id,
-                        "content": output
-                    })
-                    
-                elif name == "modify_file":
-                    p = validate_path(self.root, args["path"])
-                    anchor = args.get("anchor", "")
-                    action = args["action"]
-                    content = args.get("content", "")
-                    occurrence = int(args.get("occurrence", 1))
-                    
-                    # Get the changes
-                    old, new, info = modify_file(p, anchor, action, content, occurrence)
-                    
-                    # Update file in memory
-                    self.file_memory.add_file(str(p), new)
-                    
-                    # Show diff
-                    diff = show_diff(old, new, p)
-                    if diff.strip():
-                        print(f"\n--- Changes to: {p} ---")
-                        diff_lines = diff.split('\n')
-                        if len(diff_lines) > 50:
-                            print('\n'.join(diff_lines[:25]))
-                            print(f"\n... [{len(diff_lines) - 50} lines omitted] ...\n")
-                            print('\n'.join(diff_lines[-25:]))
-                        else:
-                            print(diff)
-                    
-                    if not self.auto_yes and diff.strip():
-                        if input(f"Apply changes? [y/N]: ").lower() not in ("y", "yes"):
-                            # Revert the change
-                            p.write_text(old, encoding="utf-8")
-                            results.append({
-                                "type": "tool_result",
-                                "tool_use_id": tu.id,
-                                "content": "User declined changes",
-                                "is_error": True
-                            })
-                            continue
-                    
-                    # Format detailed feedback
-                    feedback = (
-                        f"Modified {p}:\n"
-                        f"  - Action: {info['action']} {info['anchor']}\n"
-                        f"  - Changes: {info.get('modified_occurrences', info.get('position', 'unknown'))}\n"
-                        f"  - Size: {info['old_size']} → {info['new_size']} bytes ({info['size_change']:+d})\n"
-                        f"  - Lines: {info['old_lines']} → {info['new_lines']} ({info['line_change']:+d})"
-                    )
-                    
-                    print(f"  ✓ Modified: {p} ({info['size_change']:+d} bytes, {info['line_change']:+d} lines)")
-                    results.append({
-                        "type": "tool_result",
-                        "tool_use_id": tu.id,
-                        "content": feedback
-                    })
-                    
-                else:
-                    results.append({
-                        "type": "tool_result",
-                        "tool_use_id": tu.id,
-                        "content": f"Unknown tool: {name}",
-                        "is_error": True
-                    })
-                    
-            except Exception as e:
-                print(f"  ❌ Error: {e}")
-                results.append({
-                    "type": "tool_result",
-                    "tool_use_id": tu.id,
-                    "content": f"Error: {e}",
-                    "is_error": True
-                })
+            results.append({
+                "type": "tool_result",
+                "tool_use_id": tool_use.id,
+                "content": output,
+                "is_error": not success
+            })
                 
         return results
         
     def handle_command(self, command: str) -> bool:
-        """Handle special slash commands."""
+        """
+        Handle special slash commands.
+        
+        Args:
+            command: The slash command (e.g., "/help")
+            
+        Returns:
+            True to continue, False to exit
+        """
         cmd = command.lower().strip()
         
         if cmd in ('/help', '/h', '/?'):
@@ -431,7 +295,12 @@ Just type normally to interact with Ronin!
         return True
         
     def trim_history(self):
-        """Trim conversation history if it gets too long."""
+        """
+        Trim conversation history if it gets too long.
+        
+        This prevents the conversation from exceeding Claude's context window.
+        Keeps the most recent messages and discards older ones.
+        """
         # Estimate total size
         total_chars = sum(len(str(msg)) for msg in self.messages)
         
@@ -444,7 +313,18 @@ Just type normally to interact with Ronin!
                 print("\n📋 (Trimmed older conversation history to stay within limits)")
 
 def interactive_mode(model: str, root: Path, auto_yes: bool, max_steps: int):
-    """Run Ronin in interactive chat mode."""
+    """
+    Run Ronin in interactive chat mode.
+    
+    This is the main entry point for interactive mode. It displays
+    a welcome message and starts the conversation loop.
+    
+    Args:
+        model: Claude model to use
+        root: Sandbox root directory
+        auto_yes: Auto-approve changes if True
+        max_steps: Max operations per turn
+    """
     
     print("""
 ╭─────────────────────────────────────────╮

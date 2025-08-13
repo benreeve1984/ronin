@@ -6,6 +6,8 @@ import pathlib  # For path handling
 
 # Import the main execution function from agent.py
 from agent import run_once
+# Import logging setup
+from logging_config import setup_logging
 
 def main():
     """Main entry point for the Ronin CLI application.
@@ -45,6 +47,11 @@ def main():
                    help="Model name (or set RONIN_MODEL env var)")
     # Parse the command-line arguments into a namespace object
     args = p.parse_args()
+    
+    # Initialize logging (can be configured via env vars)
+    log_level = os.getenv("RONIN_LOG_LEVEL", "INFO")
+    log_to_file = os.getenv("RONIN_LOG_TO_FILE", "true").lower() == "true"
+    setup_logging(level=log_level, log_to_file=log_to_file)
 
     # Check for Claude API key in environment variables
     # This key authenticates your requests to Claude AI

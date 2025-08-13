@@ -3,6 +3,11 @@
 
 from pathlib import Path
 from typing import Dict, Tuple
+from exceptions import (
+    SandboxViolationError, InvalidFileTypeError, 
+    FileNotFoundError as RoninFileNotFoundError,
+    FileAlreadyExistsError, AnchorNotFoundError
+)
 
 # Security: Only allow text file modifications
 ALLOWED_EXTS = {".md", ".txt"}
@@ -30,11 +35,11 @@ def validate_path(root: Path, rel_path: str) -> Path:
     try:
         p.relative_to(root)
     except ValueError:
-        raise ValueError(f"Path escapes root: {rel_path}")
+        raise SandboxViolationError(p, root)
     
     # Check file extension
     if p.suffix.lower() not in ALLOWED_EXTS:
-        raise ValueError(f"Only {ALLOWED_EXTS} files are allowed")
+        raise InvalidFileTypeError(p, ALLOWED_EXTS)
     
     return p
 
@@ -106,7 +111,7 @@ def read_file(path: Path, start_line: int = 1, end_line: int = None) -> str:
         ValueError: If line numbers are invalid
     """
     if not path.exists():
-        raise FileNotFoundError(f"File not found: {path}")
+        raise RoninFileNotFoundError(path)
     
     # Read entire file (no size limit - trust the model)
     text = path.read_text(encoding="utf-8", errors="replace")
@@ -155,7 +160,7 @@ def create_file(path: Path, content: str) -> Dict:
         FileExistsError: If file already exists
     """
     if path.exists():
-        raise FileExistsError(f"File already exists: {path}")
+        raise FileAlreadyExistsError(path)
     
     # Create parent directories if needed
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -182,7 +187,7 @@ def delete_file(path: Path) -> Dict:
         FileNotFoundError: If file doesn't exist
     """
     if not path.exists():
-        raise FileNotFoundError(f"File not found: {path}")
+        raise RoninFileNotFoundError(path)
     
     # Get info before deletion
     size = path.stat().st_size
@@ -235,7 +240,7 @@ def modify_file(path: Path, anchor: str = "", action: str = "after",
         modify_file(path, anchor="foo", action="replace", content="bar", occurrence=0)
     """
     if not path.exists():
-        raise FileNotFoundError(f"File not found: {path}")
+        raise RoninFileNotFoundError(path)
     
     if action not in ("before", "after", "replace"):
         raise ValueError(f"Invalid action: {action}. Use 'before', 'after', or 'replace'")
@@ -274,7 +279,10 @@ def modify_file(path: Path, anchor: str = "", action: str = "after",
             start = idx + 1
         
         if not indices:
-            raise ValueError(f"Anchor not found: {anchor!r}")
+            # Try to find similar text for suggestions
+            from exceptions import find_similar_text
+            suggestions = find_similar_text(anchor, old_content)
+            raise AnchorNotFoundError(anchor, path, suggestions)
         
         change_info["found_occurrences"] = len(indices)
         

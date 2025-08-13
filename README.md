@@ -23,10 +23,14 @@ Ronin "Replace all occurrences of 'old_name' with 'new_name' in docs.txt"
 
 ```
 ronin/
-├── agent.py       # AI orchestration and tool execution
-├── tools.py       # File operations (create, delete, modify)
-├── cli.py         # Command-line interface
-└── pyproject.toml # Package configuration
+├── cli.py           # Command-line interface entry point
+├── agent.py         # AI orchestration for single-shot mode
+├── chat_mode.py     # Interactive conversation mode
+├── tools.py         # Core file operation implementations
+├── tool_registry.py # SINGLE SOURCE OF TRUTH for all tools
+├── tool_executor.py # Centralized tool execution logic
+├── prompts.py       # All AI prompts in one place
+└── pyproject.toml   # Package configuration
 ```
 
 ## Core Design: Simplicity Through Composability
@@ -92,6 +96,38 @@ Ronin "find all mentions of API in *.md files"
 Ronin "search for 'MyClass' case-sensitive with 0 context lines"
 ```
 
+## Clean Architecture
+
+### Adding New Tools
+Adding a new tool is now incredibly simple! Just add it to `tool_registry.py`:
+
+```python
+TOOLS = {
+    "your_new_tool": ToolDefinition(
+        name="your_new_tool",
+        description="What it does",
+        category="read/write/search",
+        parameters={...},
+        handler=your_function,
+        formatter=your_formatter,  # Optional
+        needs_confirmation=True    # Ask user first?
+    )
+}
+```
+
+That's it! The tool is now:
+- Available to Claude AI
+- Handled by the executor
+- Working in both modes (single-shot and interactive)
+
+### Key Benefits of the New Architecture
+
+1. **Single Source of Truth**: All tools defined in one place (`tool_registry.py`)
+2. **No Duplication**: Tool execution logic shared between modes
+3. **Easy to Extend**: Add new tools by adding config, not code
+4. **Maintainable**: Clear separation of concerns
+5. **Testable**: Each component can be tested independently
+
 ## How Each File Works
 
 ### 1. **cli.py** - The Entry Point
@@ -114,8 +150,17 @@ Connects to Claude AI and orchestrates tool execution.
 - Shows diffs before applying changes
 - Handles user confirmation
 
-### 3. **tools.py** - File Operations
-The simplified file manipulation library.
+### 3. **tool_registry.py** - Tool Definitions
+The SINGLE SOURCE OF TRUTH for all tools. Define once, use everywhere.
+
+### 4. **tool_executor.py** - Tool Execution
+Handles all tool execution, confirmations, and formatting.
+
+### 5. **prompts.py** - AI Prompts
+All prompts in one place for easy modification and migration to tools like Langfuse.
+
+### 6. **tools.py** - File Operations
+The core file manipulation implementations.
 
 **Core functions:**
 - `validate_path()`: Ensures sandbox security
