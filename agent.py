@@ -3,7 +3,7 @@ import difflib, anthropic
 from pathlib import Path
 from tools import (
     ALLOWED_EXTS, validate_path, list_files,
-    read_file, create_file, delete_file, modify_file
+    read_file, create_file, delete_file, modify_file, search_files
 )
 
 SYSTEM_PROMPT = """You are Ronin, a text-editing agent specializing in .md and .txt files.
@@ -33,8 +33,8 @@ def tool_specs(root: Path):
         {
             "name": "list_files",
             "description": (
-                f"List .md/.txt files in the project. Returns file paths and count. "
-                f"Use patterns like '*.md' or 'docs/*.txt'. {base}"
+                f"List .md/.txt files with sizes and line counts. Shows how big files are "
+                f"so you can decide how much to read. Use patterns like '*.md' or 'docs/*.txt'. {base}"
             ),
             "input_schema": {
                 "type": "object",
@@ -50,8 +50,8 @@ def tool_specs(root: Path):
         {
             "name": "read_file",
             "description": (
-                f"Read a text file's contents. Always use this before modifying. "
-                f"Returns full content or truncated with marker if too large. {base}"
+                f"Read a text file's contents or specific lines. Can read entire file or "
+                f"just lines X to Y. Always check file size with list_files first for large files. {base}"
             ),
             "input_schema": {
                 "type": "object",
@@ -59,6 +59,15 @@ def tool_specs(root: Path):
                     "path": {
                         "type": "string",
                         "description": "Relative path to file (e.g. 'README.md', 'docs/guide.txt')"
+                    },
+                    "start_line": {
+                        "type": "number",
+                        "default": 1,
+                        "description": "Line to start from (1-indexed). Default: 1 (beginning)"
+                    },
+                    "end_line": {
+                        "type": "number",
+                        "description": "Line to end at (inclusive). Default: end of file"
                     }
                 },
                 "required": ["path"]
@@ -142,6 +151,40 @@ def tool_specs(root: Path):
                 },
                 "required": ["path", "action"]
             }
+        },
+        {
+            "name": "search_files",
+            "description": (
+                f"Search for text across all files, like Ctrl+F but for multiple files. "
+                f"Case-insensitive by default for human-friendly searching. "
+                f"Shows context around matches to understand usage. "
+                f"Returns line numbers and file paths. {base}"
+            ),
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "text": {
+                        "type": "string",
+                        "description": "Text to search for (required)"
+                    },
+                    "pattern": {
+                        "type": "string",
+                        "default": "*",
+                        "description": "Which files to search (e.g. '*.md', 'docs/*'). Default: all files"
+                    },
+                    "case_sensitive": {
+                        "type": "boolean",
+                        "default": False,
+                        "description": "Make search case-sensitive. Default: False (case-insensitive)"
+                    },
+                    "context_lines": {
+                        "type": "number",
+                        "default": 2,
+                        "description": "Lines to show before/after each match (0=just the match). Default: 2"
+                    }
+                },
+                "required": ["text"]
+            }
         }
     ]
 
@@ -194,7 +237,10 @@ def run_once(prompt: str, model: str, root: Path, auto_yes: bool, dry_run: bool,
             total_operations += 1
             
             print(f"\n🔧 Executing: {name}", end="")
-            if name == "modify_file":
+            if name == "search_files":
+                text = args.get("text", "?")
+                print(f" (searching for: '{text[:30]}...')" if len(text) > 30 else f" (searching for: '{text}')")
+            elif name == "modify_file":
                 action = args.get("action", "?")
                 anchor = args.get("anchor", "")
                 if anchor:
@@ -214,13 +260,12 @@ def run_once(prompt: str, model: str, root: Path, auto_yes: bool, dry_run: bool,
                     # Format result for clarity
                     if "error" in result:
                         output = f"Error: {result['error']}"
-                    elif result.get("entries"):
-                        output = (
-                            f"Found {result['count']} files matching '{pattern}':\n" +
-                            "\n".join(f"  - {e}" for e in result['entries'][:20])
-                        )
+                    elif result.get("files"):
+                        output = f"Found {result['count']} files matching '{pattern}':\n"
+                        for f in result['files'][:20]:
+                            output += f"  - {f['path']} ({f['lines']} lines, {f['size_display']})\n"
                         if result['count'] > 20:
-                            output += f"\n  ... and {result['count'] - 20} more"
+                            output += f"  ... and {result['count'] - 20} more"
                     else:
                         output = f"No files found matching '{pattern}'"
                     
@@ -232,11 +277,17 @@ def run_once(prompt: str, model: str, root: Path, auto_yes: bool, dry_run: bool,
 
                 elif name == "read_file":
                     p = validate_path(root, args["path"])
-                    content = read_file(p)
+                    start_line = int(args.get("start_line", 1))
+                    end_line = int(args.get("end_line")) if args.get("end_line") else None
                     
-                    # Add helpful context
-                    lines = content.count('\n') + 1
-                    output = f"File: {p} ({lines} lines, {len(content)} bytes)\n\n{content}"
+                    content = read_file(p, start_line, end_line)
+                    
+                    # Add helpful context for full reads
+                    if start_line == 1 and end_line is None:
+                        lines = content.count('\n') + 1
+                        output = f"File: {p} ({lines} lines, {len(content)} bytes)\n\n{content}"
+                    else:
+                        output = f"File: {p}\n{content}"
                     
                     results.append({
                         "type": "tool_result",
@@ -304,6 +355,45 @@ def run_once(prompt: str, model: str, root: Path, auto_yes: bool, dry_run: bool,
                             "tool_use_id": tu.id,
                             "content": f"Deleted {info['deleted']} ({info['size']} bytes)"
                         })
+
+                elif name == "search_files":
+                    text = args["text"]
+                    pattern = args.get("pattern", "*")
+                    case_sensitive = args.get("case_sensitive", False)
+                    context_lines = int(args.get("context_lines", 2))
+                    
+                    result = search_files(root, text, pattern, case_sensitive, context_lines)
+                    
+                    # Format human-readable output
+                    if result["total_matches"] == 0:
+                        output = f"No matches found for '{text}'"
+                    else:
+                        output = f"Found '{text}' {result['total_matches']} times in {result['files_with_matches']} files:\n\n"
+                        
+                        for file_result in result["matches"]:
+                            output += f"{file_result['file']}:\n"
+                            for match in file_result["matches"]:
+                                # Show context
+                                if context_lines > 0 and "before" in match:
+                                    for i, line in enumerate(match["before"], match["line_number"] - len(match["before"])):
+                                        output += f"  {i:4}: {line}\n"
+                                
+                                # Highlight the matching line
+                                output += f"→ {match['line_number']:4}: {match['line']}\n"
+                                
+                                if context_lines > 0 and "after" in match:
+                                    for i, line in enumerate(match["after"], match["line_number"] + 1):
+                                        output += f"  {i:4}: {line}\n"
+                                
+                                if match.get("truncated"):
+                                    output += "  ... (more matches truncated)\n"
+                                output += "\n"
+                    
+                    results.append({
+                        "type": "tool_result",
+                        "tool_use_id": tu.id,
+                        "content": output
+                    })
 
                 elif name == "modify_file":
                     p = validate_path(root, args["path"])

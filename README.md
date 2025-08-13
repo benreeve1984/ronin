@@ -31,13 +31,14 @@ ronin/
 
 ## Core Design: Simplicity Through Composability
 
-Ronin uses a revolutionary **anchor-based modification** system. Instead of dozens of specialized functions, we have just **3 core operations** that can express any text manipulation:
+Ronin uses a revolutionary **anchor-based modification** system. Instead of dozens of specialized functions, we have just **4 core operations** that can express any text manipulation:
 
-### The 3 Core Operations
+### The Core Operations
 
 1. **`create_file(path, content)`** - Create new files
 2. **`delete_file(path)`** - Delete files  
 3. **`modify_file(path, anchor, action, content, occurrence)`** - Universal modification
+4. **`search_files(text, pattern, case_sensitive, context_lines)`** - Fast text search across files
 
 ### The Power of modify_file
 
@@ -62,6 +63,34 @@ The `modify_file` function uses a simple mental model:
 | Insert after TODO | `modify_file(path, "TODO:", "after", "- item")` |
 | Delete text | `modify_file(path, "old", "replace", "")` |
 | Replace all occurrences | `modify_file(path, "old", "replace", "new", 0)` |
+
+### The Power of search_files
+
+The `search_files` function provides human-friendly text search across multiple files, like Ctrl+F but for your entire project:
+
+#### Parameters:
+- `text`: What to search for (required)
+- `pattern`: Which files to search (default: all)
+- `case_sensitive`: Case-sensitive search (default: False)
+- `context_lines`: Lines to show before/after matches (default: 2)
+
+#### Features:
+- **Fast**: No indexing required, searches line-by-line
+- **Human-friendly**: Case-insensitive by default
+- **Context-aware**: Shows surrounding lines to understand usage
+- **Smart truncation**: Limits to 10 matches per file to avoid spam
+
+#### Examples:
+```bash
+# Find all TODO items
+Ronin "search for TODO"
+
+# Search only in markdown files
+Ronin "find all mentions of API in *.md files"
+
+# Case-sensitive search with no context
+Ronin "search for 'MyClass' case-sensitive with 0 context lines"
+```
 
 ## How Each File Works
 
@@ -95,6 +124,7 @@ The simplified file manipulation library.
 - `create_file()`: Create new files
 - `delete_file()`: Remove files
 - `modify_file()`: Universal text modification
+- `search_files()`: Fast text search across files
 
 **Security features:**
 - Path sandboxing (can't escape root)

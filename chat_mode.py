@@ -10,7 +10,7 @@ from datetime import datetime
 from agent import run_once, SYSTEM_PROMPT, tool_specs, show_diff
 from tools import (
     ALLOWED_EXTS, validate_path, list_files,
-    read_file, create_file, delete_file, modify_file
+    read_file, create_file, delete_file, modify_file, search_files
 )
 
 # Token limits (approximate - we'll use character count as proxy)
@@ -155,7 +155,10 @@ Remember what was discussed and what files were created/modified earlier in the 
             args = dict(tu.input or {})
             
             print(f"\n🔧 Executing: {name}", end="")
-            if name == "modify_file":
+            if name == "search_files":
+                text = args.get("text", "?")
+                print(f" (searching for: '{text[:30]}...')" if len(text) > 30 else f" (searching for: '{text}')")
+            elif name == "modify_file":
                 action = args.get("action", "?")
                 anchor = args.get("anchor", "")
                 if anchor:
@@ -175,13 +178,12 @@ Remember what was discussed and what files were created/modified earlier in the 
                     # Format result
                     if "error" in result:
                         output = f"Error: {result['error']}"
-                    elif result.get("entries"):
-                        output = (
-                            f"Found {result['count']} files matching '{pattern}':\n" +
-                            "\n".join(f"  - {e}" for e in result['entries'][:20])
-                        )
+                    elif result.get("files"):
+                        output = f"Found {result['count']} files matching '{pattern}':\n"
+                        for f in result['files'][:20]:
+                            output += f"  - {f['path']} ({f['lines']} lines, {f['size_display']})\n"
                         if result['count'] > 20:
-                            output += f"\n  ... and {result['count'] - 20} more"
+                            output += f"  ... and {result['count'] - 20} more"
                     else:
                         output = f"No files found matching '{pattern}'"
                     
@@ -193,14 +195,21 @@ Remember what was discussed and what files were created/modified earlier in the 
                     
                 elif name == "read_file":
                     p = validate_path(self.root, args["path"])
-                    content = read_file(p)
+                    start_line = int(args.get("start_line", 1))
+                    end_line = int(args.get("end_line")) if args.get("end_line") else None
                     
-                    # Track file in memory
-                    self.file_memory.add_file(str(p), content)
+                    content = read_file(p, start_line, end_line)
                     
-                    # Add helpful context
-                    lines = content.count('\n') + 1
-                    output = f"File: {p} ({lines} lines, {len(content)} bytes)\n\n{content}"
+                    # Track file in memory (only for full reads)
+                    if start_line == 1 and end_line is None:
+                        self.file_memory.add_file(str(p), content)
+                    
+                    # Add helpful context for full reads
+                    if start_line == 1 and end_line is None:
+                        lines = content.count('\n') + 1
+                        output = f"File: {p} ({lines} lines, {len(content)} bytes)\n\n{content}"
+                    else:
+                        output = f"File: {p}\n{content}"
                     
                     results.append({
                         "type": "tool_result",
@@ -261,6 +270,46 @@ Remember what was discussed and what files were created/modified earlier in the 
                         "type": "tool_result",
                         "tool_use_id": tu.id,
                         "content": f"Deleted {info['deleted']} ({info['size']} bytes)"
+                    })
+                    
+                elif name == "search_files":
+                    text = args["text"]
+                    pattern = args.get("pattern", "*")
+                    case_sensitive = args.get("case_sensitive", False)
+                    context_lines = int(args.get("context_lines", 2))
+                    
+                    result = search_files(self.root, text, pattern, case_sensitive, context_lines)
+                    
+                    # Format human-readable output
+                    if result["total_matches"] == 0:
+                        output = f"No matches found for '{text}'"
+                    else:
+                        output = f"Found '{text}' {result['total_matches']} times in {result['files_with_matches']} files:\n\n"
+                        
+                        for file_result in result["matches"]:
+                            output += f"{file_result['file']}:\n"
+                            for match in file_result["matches"]:
+                                # Show context
+                                if context_lines > 0 and "before" in match:
+                                    for i, line in enumerate(match["before"], match["line_number"] - len(match["before"])):
+                                        output += f"  {i:4}: {line}\n"
+                                
+                                # Highlight the matching line
+                                output += f"→ {match['line_number']:4}: {match['line']}\n"
+                                
+                                if context_lines > 0 and "after" in match:
+                                    for i, line in enumerate(match["after"], match["line_number"] + 1):
+                                        output += f"  {i:4}: {line}\n"
+                                
+                                if match.get("truncated"):
+                                    output += "  ... (more matches truncated)\n"
+                                output += "\n"
+                    
+                    print(f"  ✓ Search complete: {result['total_matches']} matches in {result['files_with_matches']} files")
+                    results.append({
+                        "type": "tool_result",
+                        "tool_use_id": tu.id,
+                        "content": output
                     })
                     
                 elif name == "modify_file":
