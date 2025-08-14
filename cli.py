@@ -43,7 +43,7 @@ def main():
     # OPTIONAL: Limit how many tool operations Claude can perform
     # Prevents runaway operations or excessive API usage
     # Each "step" is one round of tool use (read, write, etc.)
-    p.add_argument("--max-steps", type=int, default=10, help="Max tool rounds before stop")
+    p.add_argument("--max-steps", type=int, default=25, help="Max tool operations per turn (default: 25)")
     # OPTIONAL: Choose which Claude model to use
     # First checks RONIN_MODEL environment variable, then uses default
     # Different models have different capabilities and costs

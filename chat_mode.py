@@ -254,7 +254,7 @@ class ChatSession:
         
     def process_tools(self, tool_uses) -> List[Dict]:
         """
-        Process tool requests from Claude.
+        Process tool requests from Claude with batch display for similar operations.
         
         Args:
             tool_uses: List of tool use requests from Claude
@@ -264,21 +264,91 @@ class ChatSession:
         """
         results = []
         
-        for tool_use in tool_uses:
+        # Group consecutive modify_file operations for streamlined display
+        modify_batch = []
+        
+        for i, tool_use in enumerate(tool_uses):
             tool_name = tool_use.name
             args = dict(tool_use.input or {})
             
-            # Execute through our centralized executor
-            output, success = self.executor.execute(tool_name, args)
-            
-            results.append({
-                "type": "tool_result",
-                "tool_use_id": tool_use.id,
-                "content": output,
-                "is_error": not success
-            })
+            # Check if this is part of a modify_file batch
+            if tool_name == "modify_file":
+                modify_batch.append((tool_use, args))
+                
+                # Check if this is the last tool or next tool is different
+                is_last = (i == len(tool_uses) - 1)
+                next_is_different = (not is_last and tool_uses[i+1].name != "modify_file")
+                
+                if is_last or next_is_different:
+                    # Process the batch
+                    if len(modify_batch) > 1:
+                        # Multiple modifications - show streamlined output
+                        print(f"\n🔧 Executing: {len(modify_batch)} File Modifications")
+                        for tool_use, args in modify_batch:
+                            # Execute without the full header (already printed above)
+                            output, success = self._execute_modify_quiet(args)
+                            results.append({
+                                "type": "tool_result",
+                                "tool_use_id": tool_use.id,
+                                "content": output,
+                                "is_error": not success
+                            })
+                        print(f"  ✅ All {len(modify_batch)} modifications completed successfully")
+                    else:
+                        # Single modification - use normal display
+                        tool_use, args = modify_batch[0]
+                        output, success = self.executor.execute(tool_name, args)
+                        results.append({
+                            "type": "tool_result",
+                            "tool_use_id": tool_use.id,
+                            "content": output,
+                            "is_error": not success
+                        })
+                    
+                    # Clear the batch
+                    modify_batch = []
+            else:
+                # Not a modify_file - execute normally
+                output, success = self.executor.execute(tool_name, args)
+                results.append({
+                    "type": "tool_result",
+                    "tool_use_id": tool_use.id,
+                    "content": output,
+                    "is_error": not success
+                })
                 
         return results
+    
+    def _execute_modify_quiet(self, args: Dict) -> tuple:
+        """Execute a modify_file operation with minimal output for batch operations."""
+        # Use the executor but capture the output quietly
+        from pathlib import Path
+        import tools
+        
+        try:
+            path = tools.validate_path(self.root, args["path"])
+            anchor = args.get("anchor", "")
+            action = args["action"]
+            content = args.get("content", "")
+            occurrence = int(args.get("occurrence", 1))
+            
+            # Just show a brief indicator for each file
+            if anchor:
+                print(f"  → Modifying {path.name} ({action} anchor)")
+            else:
+                print(f"  → Modifying {path.name} ({action})")
+            
+            # Execute the modification
+            old, new, info = tools.modify_file(path, anchor, action, content, occurrence)
+            
+            # Update file memory
+            if self.file_memory:
+                self.file_memory.add_file(str(path), new)
+            
+            return info, True
+        except Exception as e:
+            print(f"  ❌ Error modifying {args.get('path', 'file')}: {e}")
+            return str(e), False
         
     def handle_command(self, command: str) -> bool:
         """
