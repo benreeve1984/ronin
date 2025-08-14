@@ -11,8 +11,12 @@ authors = [
 ]
 dependencies = ["anthropic>=0.29"]
 
+[project.optional-dependencies]
+tracing = ["langsmith>=0.1.0"]
+all = ["langsmith>=0.1.0"]
+
 [project.scripts]
 Ronin = "cli:main"
 
 [tool.setuptools]
-py-modules = ["agent", "cli", "tools", "chat_mode", "tool_registry", "prompts", "tool_executor", "exceptions", "logging_config", "secrets_manager"]
+py-modules = ["agent", "cli", "tools", "chat_mode", "tool_registry", "prompts", "tool_executor", "exceptions", "logging_config", "secrets_manager", "langsmith_tracer", "utils"]

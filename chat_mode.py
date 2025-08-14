@@ -14,6 +14,7 @@ from tool_registry import get_tool_specs
 from tool_executor import ToolExecutor
 from prompts import get_system_prompt, FILE_CONTEXT_TEMPLATE, format_prompt
 from utils import parse_claude_response
+from langsmith_tracer import get_tracer, trace_chain
 
 # Token limits (approximate - using character count as proxy)
 MAX_CONTEXT_TOKENS = 140_000
@@ -141,6 +142,7 @@ class ChatSession:
         
         return get_system_prompt(interactive=True, file_context=file_context)
         
+    @trace_chain(name="chat_conversation_turn")
     def process_input(self, user_input: str) -> bool:
         """
         Process one user input.
@@ -323,14 +325,17 @@ def interactive_mode(model: str, root: Path, auto_yes: bool, max_steps: int):
     """
     
     print("""
-╭─────────────────────────────────────────╮
-│  🤖 Ronin - Interactive Mode             │
-│                                         │
-│  Type /help for commands                │
-│  Type exit or /exit to quit             │
-│                                         │
-│  Ready to help with your text files!   │
-╰─────────────────────────────────────────╯
+    ██████╗  ██████╗ ███╗   ██╗██╗███╗   ██╗
+    ██╔══██╗██╔═══██╗████╗  ██║██║████╗  ██║
+    ██████╔╝██║   ██║██╔██╗ ██║██║██╔██╗ ██║
+    ██╔══██╗██║   ██║██║╚██╗██║██║██║╚██╗██║
+    ██║  ██║╚██████╔╝██║ ╚████║██║██║ ╚████║
+    ╚═╝  ╚═╝ ╚═════╝ ╚═╝  ╚═══╝╚═╝╚═╝  ╚═══╝
+    
+    🥷 Your CLI Agent
+    
+    Commands: /help  /clear  /exit
+    Just type to start chatting!
 """)
     
     session = ChatSession(model, root, auto_yes, max_steps)

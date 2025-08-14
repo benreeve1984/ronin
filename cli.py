@@ -10,6 +10,8 @@ from agent import run_once
 from logging_config import setup_logging
 # Import secrets management
 from secrets_manager import set_api_key, remove_api_key, list_providers, get_api_key
+# Import LangSmith tracing
+from langsmith_tracer import configure_langsmith
 
 def main():
     """Main entry point for the Ronin CLI application.
@@ -57,6 +59,12 @@ def main():
     p.add_argument("--list-keys", action="store_true",
                    help="List providers with stored API keys")
     
+    # TRACING: LangSmith observability options
+    p.add_argument("--no-tracing", action="store_true",
+                   help="Disable LangSmith tracing for this session (tracing is on by default if API key is set)")
+    p.add_argument("--langsmith-project", metavar="PROJECT",
+                   help="Set LangSmith project name for organizing traces")
+    
     # Parse the command-line arguments into a namespace object
     args = p.parse_args()
     
@@ -66,7 +74,7 @@ def main():
     log_to_file = os.getenv("RONIN_LOG_TO_FILE", "true").lower() == "true"
     setup_logging(level=log_level, log_to_file=log_to_file)
     
-    # Handle secrets management commands
+    # Handle secrets management commands BEFORE initializing tracing
     if args.set_key:
         provider, key = args.set_key
         if set_api_key(provider, key):
@@ -96,6 +104,25 @@ def main():
         else:
             print("No API keys stored. Use --set-key to add one.")
         sys.exit(0)
+    
+    # Configure LangSmith tracing AFTER handling secrets (on by default if API key exists)
+    if args.no_tracing:
+        os.environ["RONIN_ENABLE_TRACING"] = "false"
+    
+    if args.langsmith_project:
+        os.environ["LANGSMITH_PROJECT"] = args.langsmith_project
+    
+    # Initialize LangSmith silently (will be enabled by default if API key exists)
+    tracing_enabled = configure_langsmith(
+        enabled=False if args.no_tracing else None
+    )
+    
+    # Only show tracing status in debug mode
+    if os.getenv("RONIN_LOG_LEVEL") == "DEBUG":
+        if tracing_enabled:
+            print("🔍 LangSmith tracing active")
+        elif not args.no_tracing:
+            print("🔍 LangSmith tracing not available")
 
     # Check for Claude API key (from environment or stored secrets)
     # This key authenticates your requests to Claude AI

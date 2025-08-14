@@ -1,25 +1,26 @@
 # 🥷 Ronin
 
-A minimal, powerful CLI agent that brings LLM capabilities directly to your codebase. Built with Claude's API, Ronin helps you read, write, search, and modify files with natural language commands.
+A minimal, powerful CLI agent that brings LLM capabilities directly to your command line. Built with Claude's API, Ronin executes file operations, automates system tasks, and manages your workflows through natural language commands.
 
-> **Current Status**: Ronin currently focuses on text files (markdown, code, config files, etc.) with a robust foundation for file operations. We're actively expanding to support more file formats, external tools, and integrations. The architecture is designed to make adding new capabilities straightforward.
+> **What Ronin Does**: Ronin is your intelligent CLI agent that directly executes tasks in your terminal. It specializes in file management, text processing, search operations, and system automation. Currently focused on text files with plans to expand to more formats, tools, and integrations.
 
 ## ✨ Features
 
 ### What Ronin Does Today
-- **Natural Language File Operations** - Just describe what you want: "Add error handling to the login function" or "Find all TODO comments"
+- **Natural Language CLI** - Execute terminal tasks by describing them in plain English
 - **Smart Context Management** - 140k token context window with intelligent file memory
-- **Interactive Chat Mode** - Have conversations about your code with persistent context
-- **Safe by Default** - Sandboxed execution, confirmation prompts, and dry-run mode
-- **Powerful Search** - Fast, grep-like search across your entire codebase
-- **Anchor-Based Editing** - Precise text modifications using surrounding context
+- **Interactive Chat Mode** - Work through multi-step operations with persistent context
+- **Safe Execution** - Sandboxed operations, confirmation prompts, and dry-run mode
+- **Powerful File Search** - Fast, grep-like search across your entire filesystem
+- **Precision File Editing** - Modify files using anchor text or line-based operations
 - **Secure API Key Storage** - Store keys once, use everywhere
 
 ### Why Ronin?
-- **Extensible Architecture** - Built from the ground up to easily add new tools and capabilities
-- **Clean Abstractions** - Single source of truth for tools, standardized execution, unified error handling
-- **Production Ready Foundation** - Structured logging, proper error recovery, secure secrets management
-- **Rapid Development** - New tools can be added in minutes, not hours
+- **Direct Execution** - Ronin performs operations directly in your terminal, no intermediate code generation
+- **Extensible Architecture** - Built to easily add new CLI tools and system capabilities
+- **Clean Abstractions** - Single source of truth for operations, standardized execution, unified error handling
+- **Production Ready** - Structured logging, proper error recovery, secure secrets management
+- **Rapid Integration** - New CLI tools can be added in minutes, not hours
 
 ## 🚀 Quick Start
 
@@ -32,6 +33,8 @@ cd ronin
 
 # Install in development mode
 pip install -e .
+
+# Now you can use the 'Ronin' command from anywhere!
 ```
 
 ### Setup
@@ -39,7 +42,7 @@ pip install -e .
 Store your Anthropic API key (one-time setup):
 
 ```bash
-python cli.py --set-key anthropic YOUR_API_KEY
+Ronin --set-key anthropic YOUR_API_KEY
 ```
 
 Or set it as an environment variable:
@@ -51,48 +54,54 @@ export ANTHROPIC_API_KEY=your_api_key_here
 ### Basic Usage
 
 ```bash
-# Single command mode
-python cli.py "list all markdown files"
-python cli.py "create a README with installation instructions"
-python cli.py "find all functions that handle authentication"
+# Execute file operations
+Ronin "list all markdown files in docs/"
+Ronin "find and show all TODO comments in my project"
+Ronin "search for API endpoints in the config files"
 
-# Interactive chat mode (just run without arguments)
-python cli.py
+# Automate multi-step tasks
+Ronin "organize these log files by date"
+Ronin "extract all email addresses from these documents"
+
+# Interactive chat mode for complex workflows
+Ronin
 
 # Work in a specific directory
-python cli.py "update the config file" --root ./my-project
+Ronin "update all version numbers to 2.0.0" --root ./my-project
 
-# Dry run to preview changes
-python cli.py "refactor the database module" --plan
+# Preview operations before execution
+Ronin "clean up duplicate files" --plan
 
-# Manual confirmation mode
-python cli.py "delete all test files" --no-auto-yes
+# Require confirmation for destructive operations
+Ronin "remove all .tmp files" --no-auto-yes
 ```
 
 ## 💬 Interactive Mode
 
-Launch an interactive session to have a conversation about your code:
+Launch an interactive session for multi-step tasks and conversations:
 
 ```bash
-python cli.py
+Ronin
 ```
 
 In interactive mode:
-- Chat naturally about your codebase
+- Work through complex tasks step by step
 - Files remain in context across messages
 - Use `/help` for available commands
 - Use `/clear` to reset context
 - Use `/exit` to quit
 
-## 🛠️ Available Tools
+## 🛠️ Available Operations
 
-Ronin can:
-- **List Files** - Find files by pattern or extension
-- **Read Files** - Load file contents with optional line ranges
-- **Create Files** - Generate new files with content
-- **Delete Files** - Remove files safely
+Ronin executes these CLI operations:
+- **List Files** - Find and enumerate files by pattern or extension
+- **Read Files** - Display file contents with optional line ranges
+- **Create Files** - Generate new files with specified content
+- **Delete Files** - Remove files with safety checks
 - **Modify Files** - Edit files using anchor text or line positions
-- **Search Files** - Find text across your codebase with context
+- **Search Files** - Grep-like search across your filesystem with context
+
+*Note: Ronin automatically ignores common directories like `.venv`, `node_modules`, `__pycache__`, `.git`, etc. when listing or searching files.*
 
 ## 🔧 Configuration
 
@@ -103,6 +112,8 @@ Ronin can:
 - `--plan` - Dry-run mode to preview without making changes
 - `--max-steps N` - Limit the number of operations (default: 10)
 - `--model MODEL` - Choose Claude model (default: claude-3-5-sonnet)
+- `--no-tracing` - Disable LangSmith tracing for this session
+- `--langsmith-project NAME` - Set project name for organizing traces
 
 ### Environment Variables
 
@@ -110,18 +121,21 @@ Ronin can:
 - `RONIN_MODEL` - Default model to use
 - `RONIN_LOG_LEVEL` - Logging verbosity (DEBUG, INFO, WARNING, ERROR)
 - `RONIN_LOG_TO_FILE` - Enable file logging (true/false)
+- `LANGSMITH_API_KEY` - LangSmith API key for tracing
+- `LANGSMITH_PROJECT` - Default project name for traces
+- `RONIN_ENABLE_TRACING` - Set to "false" to disable tracing (default: true when API key exists)
 
 ### Secrets Management
 
 ```bash
 # Store a key
-python cli.py --set-key anthropic sk-ant-...
+Ronin --set-key anthropic sk-ant-...
 
 # List stored keys
-python cli.py --list-keys
+Ronin --list-keys
 
 # Remove a key
-python cli.py --remove-key anthropic
+Ronin --remove-key anthropic
 ```
 
 Keys are stored securely in `~/.ronin/secrets.enc` with machine-specific encryption.
@@ -146,11 +160,12 @@ ronin/
 
 Ronin follows these principles:
 
-1. **Minimal** - Simple, focused tools that do one thing well
-2. **Composable** - Tools can be combined for complex operations
-3. **Safe** - Sandboxed execution with confirmation prompts
-4. **Transparent** - Clear feedback about what's happening
-5. **Extensible** - Easy to add new tools and capabilities
+1. **Direct Action** - Execute operations immediately in your terminal
+2. **Minimal** - Simple, focused operations that do one thing well
+3. **Composable** - Operations can be chained for complex workflows
+4. **Safe** - Sandboxed execution with confirmation prompts
+5. **Transparent** - Clear feedback about what's being executed
+6. **Extensible** - Easy to add new CLI tools and system capabilities
 
 ## 🔐 Security
 
@@ -159,14 +174,44 @@ Ronin follows these principles:
 - **Secure Key Storage** - API keys are encrypted with machine-specific keys
 - **No Phone Home** - All operations are local, no telemetry
 
-## 📊 Logging
+## 📊 Logging & Observability
 
-Ronin provides structured logging for debugging and monitoring:
+### Local Logging
+Ronin provides structured logging for debugging:
 
 - Logs are stored in `~/.ronin/logs/`
 - JSON format for easy parsing
 - Configurable verbosity levels
 - Trace IDs for tracking operations
+
+### LangSmith Tracing
+Ronin automatically enables LangSmith tracing when an API key is available. No configuration needed - it just works!
+
+```bash
+# Optional: Install LangSmith for enhanced tracing
+pip install langsmith
+
+# Store your LangSmith API key (one-time setup)
+Ronin --set-key langsmith <your-api-key>
+
+# That's it! Tracing is automatic and silent
+Ronin "organize my project files"
+
+# Organize traces by project
+Ronin "fix the bug" --langsmith-project "bug-fixes"
+
+# Disable tracing for a specific session if needed
+Ronin "private task" --no-tracing
+```
+
+**No API key? No problem!** Ronin works perfectly without LangSmith - tracing is completely optional.
+
+When a LangSmith API key is configured:
+- Complete traces of all tool executions
+- Claude API call monitoring
+- Performance metrics and latency tracking
+- Error tracking with recovery hints
+- Visual debugging in the LangSmith UI
 
 ## 🚦 Roadmap
 
@@ -186,7 +231,7 @@ Ronin provides structured logging for debugging and monitoring:
 - 🔄 Cloud service integrations
 
 ### Future Vision
-- 📋 Project-wide refactoring
+- 📋 Project-wide transformations
 - 📋 Test generation and execution
 - 📋 Documentation generation
 - 📋 Multi-file transactions
@@ -240,7 +285,7 @@ Built with:
 
 ## 💡 Tips
 
-- Use `CLAUDE.md` files in your projects to give Ronin context about your codebase
+- Use `CLAUDE.md` files in your projects to give Ronin context about your work
 - The `--plan` flag is great for understanding what changes will be made
 - In chat mode, Ronin remembers files you've discussed for better context
 - Search supports regex patterns for advanced queries
@@ -268,4 +313,4 @@ For issues, questions, or suggestions:
 
 ---
 
-*Ronin: Your silent, efficient coding companion* 🥷
+*Ronin: Your intelligent CLI agent—executing tasks, not generating code* 🥷

@@ -9,7 +9,9 @@ from tool_registry import get_tool_specs
 from tool_executor import ToolExecutor
 from prompts import get_system_prompt
 from utils import parse_claude_response
+from langsmith_tracer import get_tracer, trace_chain
 
+@trace_chain(name="ronin_single_command")
 def run_once(prompt: str, model: str, root: Path, auto_yes: bool, dry_run: bool, max_steps: int) -> bool:
     """
     Process a user request with Claude AI, allowing multiple operations until complete.
@@ -36,8 +38,9 @@ def run_once(prompt: str, model: str, root: Path, auto_yes: bool, dry_run: bool,
         4. Send results back to Claude
         5. Repeat until Claude stops requesting tools or max_steps reached
     """
-    # Initialize Claude client
+    # Initialize Claude client with LangSmith tracing
     client = anthropic.Anthropic()
+    client = get_tracer().get_wrapped_anthropic_client(client)
     
     # Start conversation with user's prompt
     messages = [{"role": "user", "content": prompt}]

@@ -2,7 +2,8 @@
 # Design philosophy: Minimal API, maximum power through composability
 
 from pathlib import Path
-from typing import Dict, Tuple, List
+from typing import Dict, Tuple, List, Optional
+from langsmith_tracer import trace_tool
 from exceptions import (
     SandboxViolationError, InvalidFileTypeError, 
     FileNotFoundError as RoninFileNotFoundError,
@@ -11,6 +12,31 @@ from exceptions import (
 
 # Security: Only allow text file modifications
 ALLOWED_EXTS = {".md", ".txt"}
+
+# Common directories to ignore during search
+IGNORE_DIRS = {
+    ".venv", "venv", "env",  # Python virtual environments
+    "__pycache__", ".pytest_cache",  # Python cache
+    "node_modules",  # Node.js
+    ".git", ".svn", ".hg",  # Version control
+    "dist", "build", "target",  # Build outputs
+    ".idea", ".vscode",  # IDE directories
+    "*.egg-info",  # Python package info
+}
+
+def should_ignore_path(path: Path) -> bool:
+    """Check if a path should be ignored based on common patterns.
+    
+    Args:
+        path: Path to check
+        
+    Returns:
+        True if path should be ignored, False otherwise
+    """
+    for parent in path.parents:
+        if parent.name in IGNORE_DIRS or any(parent.match(ignore) for ignore in IGNORE_DIRS):
+            return True
+    return False
 
 def validate_path(root: Path, rel_path: str) -> Path:
     """Validate path stays within sandbox and has allowed extension.
@@ -43,6 +69,7 @@ def validate_path(root: Path, rel_path: str) -> Path:
     
     return p
 
+@trace_tool(name="list_files", metadata={"category": "read"})
 def list_files(root: Path, pattern: str = "*") -> Dict:
     """List files matching pattern within root, with size and line info.
     
@@ -66,7 +93,9 @@ def list_files(root: Path, pattern: str = "*") -> Dict:
     files = []
     for p in root.rglob(pattern):
         if p.is_file() and p.suffix.lower() in ALLOWED_EXTS:
-            files.append(p)
+            # Skip files in ignored directories
+            if not should_ignore_path(p):
+                files.append(p)
     
     # Get details for each file (limit to 200)
     for file_path in sorted(files)[:200]:
@@ -95,6 +124,7 @@ def list_files(root: Path, pattern: str = "*") -> Dict:
         "count": len(file_details)
     }
 
+@trace_tool(name="read_file", metadata={"category": "read"})
 def read_file(path: Path, start_line: int = 1, end_line: int = None) -> str:
     """Read a text file or specific lines from it.
     
@@ -146,6 +176,7 @@ def read_file(path: Path, start_line: int = 1, end_line: int = None) -> str:
     header = f"[Lines {start_line}-{min(end_idx, total_lines)} of {total_lines}]\n"
     return header + "\n".join(result)
 
+@trace_tool(name="create_file", metadata={"category": "write"})
 def create_file(path: Path, content: str) -> Dict:
     """Create a new file (fails if exists).
     
@@ -174,6 +205,7 @@ def create_file(path: Path, content: str) -> Dict:
         "lines": content.count('\n') + 1
     }
 
+@trace_tool(name="delete_file", metadata={"category": "write"})
 def delete_file(path: Path) -> Dict:
     """Delete a file.
     
@@ -244,6 +276,7 @@ def _apply_modification(content: str, targets: List[int], anchor: str,
     
     return result
 
+@trace_tool(name="modify_file", metadata={"category": "write"})
 def modify_file(path: Path, anchor: str = "", action: str = "after", 
                 content: str = "", occurrence: int = 1) -> Tuple[str, str, Dict]:
     """Modify a file using anchor-based operations.
@@ -344,6 +377,7 @@ def modify_file(path: Path, anchor: str = "", action: str = "after",
     
     return (old_content, new_content, change_info)
 
+@trace_tool(name="search_files", metadata={"category": "read"})
 def search_files(root: Path, text: str, pattern: str = "*", 
                  case_sensitive: bool = False, context_lines: int = 2) -> Dict:
     """Search for text across files, like Ctrl+F but for multiple files.
@@ -386,8 +420,11 @@ def search_files(root: Path, text: str, pattern: str = "*",
             else:
                 files.extend(root.glob(pattern))
     
+    # Filter out files in ignored directories
+    filtered_files = [f for f in files if not should_ignore_path(f)]
+    
     # Remove duplicates and sort
-    files = sorted(set(files))
+    files = sorted(set(filtered_files))
     results["files_searched"] = len(files)
     
     for file_path in files:

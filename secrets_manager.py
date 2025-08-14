@@ -326,8 +326,14 @@ class SecretsManager:
                         
                         # Write back
                         if encrypted:
-                            encrypted_data = cipher.encrypt(json.dumps(secrets).encode())
-                            file_path.write_bytes(encrypted_data)
+                            if CRYPTO_AVAILABLE:
+                                cipher = Fernet(self._get_encryption_key())
+                                encrypted_data = cipher.encrypt(json.dumps(secrets).encode())
+                                file_path.write_bytes(encrypted_data)
+                            else:
+                                # Use obfuscation
+                                obfuscated_data = self._obfuscate(json.dumps(secrets))
+                                file_path.write_bytes(obfuscated_data)
                         else:
                             file_path.write_text(json.dumps(secrets, indent=2))
                         
@@ -426,7 +432,7 @@ def get_api_key(provider: str = "anthropic") -> Optional[str]:
         logger.debug(f"Using API key from secrets: {provider}")
         return stored_value
     
-    logger.warning(f"No API key found for {provider}")
+    logger.debug(f"No API key found for {provider}")
     return None
 
 def set_api_key(provider: str, api_key: str) -> bool:
