@@ -120,7 +120,8 @@ class ToolExecutionLogger:
         
     def __enter__(self):
         self.start_time = datetime.utcnow()
-        self.info(f"Starting {self.tool_name}")
+        # Only log to file, not console
+        self.debug(f"Starting {self.tool_name}")
         return self
     
     def __exit__(self, exc_type, exc_val, exc_tb):
@@ -130,7 +131,8 @@ class ToolExecutionLogger:
             self.error(f"{self.tool_name} failed after {duration:.2f}s", 
                       error=str(exc_val))
         else:
-            self.info(f"{self.tool_name} completed in {duration:.2f}s")
+            # Log completion to file only
+            self.debug(f"{self.tool_name} completed in {duration:.2f}s")
         
         return False  # Don't suppress exceptions
     
@@ -145,36 +147,59 @@ class ToolExecutionLogger:
     
     def debug(self, message: str, context: Optional[Dict] = None, **kwargs):
         """Log debug message with context."""
-        record = self.logger.debug(message, extra={})
-        self._add_extras(self.logger.handlers[0].lastRecord if self.logger.handlers else None, 
-                        context, **kwargs)
+        extra = {}
+        if hasattr(self, 'trace_id'):
+            extra['trace_id'] = self.trace_id
+        if hasattr(self, 'tool_name'):
+            extra['tool_name'] = self.tool_name
+        if context:
+            extra['context'] = context
+        extra.update(kwargs)
+        self.logger.debug(message, extra=extra if extra else None)
     
     def info(self, message: str, context: Optional[Dict] = None, **kwargs):
         """Log info message with context."""
-        self.logger.info(message, extra={"trace_id": self.trace_id, 
-                                        "tool_name": self.tool_name,
-                                        "context": context, **kwargs})
+        extra = {}
+        if hasattr(self, 'trace_id'):
+            extra['trace_id'] = self.trace_id
+        if hasattr(self, 'tool_name'):
+            extra['tool_name'] = self.tool_name
+        if context:
+            extra['context'] = context
+        extra.update(kwargs)
+        self.logger.info(message, extra=extra if extra else None)
     
     def warning(self, message: str, context: Optional[Dict] = None, **kwargs):
         """Log warning message with context."""
-        self.logger.warning(message, extra={"trace_id": self.trace_id,
-                                           "tool_name": self.tool_name,
-                                           "context": context, **kwargs})
+        extra = {}
+        if hasattr(self, 'trace_id'):
+            extra['trace_id'] = self.trace_id
+        if hasattr(self, 'tool_name'):
+            extra['tool_name'] = self.tool_name
+        if context:
+            extra['context'] = context
+        extra.update(kwargs)
+        self.logger.warning(message, extra=extra if extra else None)
     
     def error(self, message: str, error: Optional[str] = None, 
               recovery_hints: Optional[str] = None, context: Optional[Dict] = None):
         """Log error with recovery hints."""
-        self.logger.error(message, extra={
-            "trace_id": self.trace_id,
-            "tool_name": self.tool_name,
-            "error_type": error,
-            "recovery_hints": recovery_hints,
-            "context": context
-        })
+        extra = {}
+        if hasattr(self, 'trace_id'):
+            extra['trace_id'] = self.trace_id
+        if hasattr(self, 'tool_name'):
+            extra['tool_name'] = self.tool_name
+        if error:
+            extra['error_type'] = error
+        if recovery_hints:
+            extra['recovery_hints'] = recovery_hints
+        if context:
+            extra['context'] = context
+        self.logger.error(message, extra=extra if extra else None)
     
     def success(self, message: str, context: Optional[Dict] = None):
-        """Log successful completion."""
-        self.info(f"✅ {message}", context)
+        """Log successful completion (to file only)."""
+        self.debug(f"✅ {message}", context)
 
 def setup_logging(level: str = "INFO", log_to_file: bool = True, 
                  console_format: str = "human"):
@@ -199,7 +224,8 @@ def setup_logging(level: str = "INFO", log_to_file: bool = True,
         console_handler.setFormatter(HumanReadableFormatter())
     else:
         console_handler.setFormatter(StructuredFormatter())
-    console_handler.setLevel(logging.INFO)  # Don't show DEBUG in console
+    # Set console level to match requested level (WARNING by default from CLI)
+    console_handler.setLevel(getattr(logging, level.upper()))
     logger.addHandler(console_handler)
     
     # File handler with JSON format
@@ -210,8 +236,8 @@ def setup_logging(level: str = "INFO", log_to_file: bool = True,
         file_handler.setLevel(logging.DEBUG)  # Log everything to file
         logger.addHandler(file_handler)
     
-    # Log startup
-    logger.info("Ronin logging initialized", extra={
+    # Log startup (only to file, not console)
+    logger.debug("Ronin logging initialized", extra={
         "context": {
             "level": level,
             "log_file": str(log_file) if log_to_file else None,

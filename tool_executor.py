@@ -76,10 +76,10 @@ class ToolExecutor:
                              recovery_hints=error.recovery_hints)
                     return error.to_claude_message(), False
                 
-                # Log the execution start
-                log.info(f"Executing {tool_name}", context={"args": args})
+                # Log the execution start (to file only)
+                log.debug(f"Executing {tool_name}", context={"args": args})
                 
-                # Print what we're doing (for user feedback)
+                # Print simple execution header for user
                 self._print_execution_header(tool_name, args)
                 
                 # Validate parameters
@@ -102,7 +102,8 @@ class ToolExecutor:
                     # Generic execution for future tools
                     result = self._execute_generic(tool_def, args)
                 
-                log.success(f"{tool_name} completed")
+                # Don't log success to console (it's redundant)
+                log.debug(f"{tool_name} completed")
                 return result
                     
             except RoninError as e:
@@ -226,7 +227,8 @@ class ToolExecutor:
             self.file_memory.add_file(str(path), content)
         
         print(f"  ✓ Created: {path} ({info['lines']} lines)")
-        output = tool_def.formatter(info) if tool_def.formatter else str(info)
+        # Don't include file content in output
+        output = f"Created {path} ({info['lines']} lines, {info['size']} bytes)"
         return output, True
     
     def _execute_delete_file(self, tool_def: ToolDefinition, args: Dict) -> Tuple[str, bool]:

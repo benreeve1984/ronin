@@ -61,7 +61,8 @@ def main():
     args = p.parse_args()
     
     # Initialize logging (can be configured via env vars)
-    log_level = os.getenv("RONIN_LOG_LEVEL", "INFO")
+    # Only show warnings and errors in console by default
+    log_level = os.getenv("RONIN_LOG_LEVEL", "WARNING")
     log_to_file = os.getenv("RONIN_LOG_TO_FILE", "true").lower() == "true"
     setup_logging(level=log_level, log_to_file=log_to_file)
     

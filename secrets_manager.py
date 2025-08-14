@@ -63,9 +63,9 @@ class SecretsManager:
         self._ensure_config_dir()
         self._encryption_key = None
         
-        logger.info("Secrets manager initialized", 
-                   extra={"context": {"keyring_available": KEYRING_AVAILABLE,
-                                     "use_keyring": self.use_keyring}})
+        logger.debug("Secrets manager initialized", 
+                    extra={"context": {"keyring_available": KEYRING_AVAILABLE,
+                                      "use_keyring": self.use_keyring}})
     
     def _ensure_config_dir(self):
         """Ensure the config directory exists with proper permissions."""
@@ -144,7 +144,7 @@ class SecretsManager:
         if self.use_keyring:
             try:
                 keyring.set_password(KEYRING_SERVICE, secret_id, value)
-                logger.info(f"Secret stored in keychain: {secret_id}")
+                logger.debug(f"Secret stored in keychain: {secret_id}")
                 return True
             except Exception as e:
                 logger.warning(f"Keychain storage failed: {e}, falling back to file")
@@ -241,7 +241,7 @@ class SecretsManager:
             pass
         
         method = "encrypted" if CRYPTO_AVAILABLE and encrypted else "obfuscated" if encrypted else "protected"
-        logger.info(f"Secret stored in {method} file: {provider}_{key}")
+        logger.debug(f"Secret stored in {method} file: {provider}_{key}")
         return True
     
     def _read_from_file(self, provider: str, key: str, 
@@ -291,7 +291,7 @@ class SecretsManager:
             try:
                 keyring.delete_password(KEYRING_SERVICE, secret_id)
                 removed = True
-                logger.info(f"Secret removed from keychain: {secret_id}")
+                logger.debug(f"Secret removed from keychain: {secret_id}")
             except:
                 pass
         
@@ -327,7 +327,7 @@ class SecretsManager:
                             file_path.write_text(json.dumps(secrets, indent=2))
                         
                         removed = True
-                        logger.info(f"Secret removed from file: {secret_id}")
+                        logger.debug(f"Secret removed from file: {secret_id}")
                 except:
                     pass
         
