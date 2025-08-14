@@ -102,7 +102,13 @@ class ToolExecutor:
                     # Generic execution for future tools
                     result = self._execute_generic(tool_def, args)
                 
-                # Don't log success to console (it's redundant)
+                # Standardized success message
+                output, success = result
+                if success:
+                    # Make tool name human-readable
+                    display_name = tool_name.replace('_', ' ').title()
+                    print(f"  ✅ {display_name} completed successfully")
+                
                 log.debug(f"{tool_name} completed")
                 return result
                     
@@ -146,7 +152,8 @@ class ToolExecutor:
     
     def _print_execution_header(self, tool_name: str, args: Dict):
         """Print execution header based on tool type."""
-        print(f"\n🔧 Executing: {tool_name}", end="")
+        display_name = tool_name.replace('_', ' ').title()
+        print(f"\n🔧 Executing: {display_name}", end="")
         
         if tool_name == "search_files":
             text = args.get("text", "?")
@@ -199,8 +206,6 @@ class ToolExecutor:
         
         result = tool_def.handler(self.root, text, pattern, case_sensitive, context_lines)
         output = tool_def.formatter(result) if tool_def.formatter else str(result)
-        
-        print(f"  ✓ Search complete: {result['total_matches']} matches in {result['files_with_matches']} files")
         return output, True
     
     def _execute_create_file(self, tool_def: ToolDefinition, args: Dict) -> Tuple[str, bool]:
@@ -226,7 +231,6 @@ class ToolExecutor:
         if self.file_memory:
             self.file_memory.add_file(str(path), content)
         
-        print(f"  ✓ Created: {path} ({info['lines']} lines)")
         # Don't include file content in output
         output = f"Created {path} ({info['lines']} lines, {info['size']} bytes)"
         return output, True
@@ -254,7 +258,6 @@ class ToolExecutor:
             if str(path) in self.file_memory.access_order:
                 self.file_memory.access_order.remove(str(path))
         
-        print(f"  ✓ Deleted: {path}")
         output = tool_def.formatter(info) if tool_def.formatter else str(info)
         return output, True
     
@@ -291,7 +294,6 @@ class ToolExecutor:
         if self.file_memory:
             self.file_memory.add_file(str(path), new)
         
-        print(f"  ✓ Modified: {path} ({info['size_change']:+d} bytes, {info['line_change']:+d} lines)")
         output = tool_def.formatter(info) if tool_def.formatter else str(info)
         return output, True
     
