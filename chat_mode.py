@@ -109,7 +109,7 @@ class ChatSession:
         total_operations: Total tool uses in session
     """
     
-    def __init__(self, model: str, root: Path, auto_yes: bool, max_steps: int):
+    def __init__(self, model: str, root: Path, auto_yes: bool, max_steps: int, dry_run: bool = False):
         """
         Initialize a new chat session.
         
@@ -118,15 +118,19 @@ class ChatSession:
             root: Sandbox root directory
             auto_yes: Auto-approve changes if True
             max_steps: Max operations per turn
+            dry_run: If True, simulate changes without making them
         """
         self.client = anthropic.Anthropic()
+        # Wrap with LangSmith tracer if available
+        self.client = get_tracer().get_wrapped_anthropic_client(self.client)
         self.model = model
         self.root = root
         self.auto_yes = auto_yes
         self.max_steps = max_steps
+        self.dry_run = dry_run
         self.messages = []
         self.file_memory = FileMemory()
-        self.executor = ToolExecutor(root, auto_yes, dry_run=False, file_memory=self.file_memory)
+        self.executor = ToolExecutor(root, auto_yes, dry_run=dry_run, file_memory=self.file_memory)
         self.total_operations = 0
         
     def get_system_prompt(self) -> str:
@@ -279,12 +283,18 @@ Just type normally to interact with Ronin!
             print(f"\n📂 Root directory: {self.root}")
             
         elif cmd == '/stats':
+            # Check tracing status
+            from langsmith_tracer import get_tracer
+            tracer = get_tracer()
+            tracing_status = "✅ Active" if tracer.enabled else "❌ Disabled (no API key)"
+            
             print(f"""
 📊 Session Statistics:
   Messages: {len(self.messages)}
   Operations: {self.total_operations}
   Files in memory: {len(self.file_memory.files)}
   Root: {self.root}
+  LangSmith Tracing: {tracing_status}
 """)
         else:
             print(f"\n❓ Unknown command: {command}")
