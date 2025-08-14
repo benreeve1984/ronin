@@ -15,4 +15,4 @@ dependencies = ["anthropic>=0.29"]
 Ronin = "cli:main"
 
 [tool.setuptools]
-py-modules = ["agent", "cli", "tools", "chat_mode", "tool_registry", "prompts", "tool_executor", "exceptions", "logging_config"]
+py-modules = ["agent", "cli", "tools", "chat_mode", "tool_registry", "prompts", "tool_executor", "exceptions", "logging_config", "secrets_manager"]

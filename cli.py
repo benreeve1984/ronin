@@ -8,6 +8,8 @@ import pathlib  # For path handling
 from agent import run_once
 # Import logging setup
 from logging_config import setup_logging
+# Import secrets management
+from secrets_manager import set_api_key, remove_api_key, list_providers, get_api_key
 
 def main():
     """Main entry point for the Ronin CLI application.
@@ -45,6 +47,16 @@ def main():
     # Different models have different capabilities and costs
     p.add_argument("--model", default=os.getenv("RONIN_MODEL", "claude-sonnet-4-20250514"),
                    help="Model name (or set RONIN_MODEL env var)")
+    
+    # SECRETS MANAGEMENT: Commands for managing API keys
+    # These allow setting API keys that persist across all sessions
+    p.add_argument("--set-key", nargs=2, metavar=("PROVIDER", "KEY"),
+                   help="Store API key for a provider (e.g., --set-key anthropic sk-...)")
+    p.add_argument("--remove-key", metavar="PROVIDER",
+                   help="Remove stored API key for a provider")
+    p.add_argument("--list-keys", action="store_true",
+                   help="List providers with stored API keys")
+    
     # Parse the command-line arguments into a namespace object
     args = p.parse_args()
     
@@ -52,13 +64,53 @@ def main():
     log_level = os.getenv("RONIN_LOG_LEVEL", "INFO")
     log_to_file = os.getenv("RONIN_LOG_TO_FILE", "true").lower() == "true"
     setup_logging(level=log_level, log_to_file=log_to_file)
+    
+    # Handle secrets management commands
+    if args.set_key:
+        provider, key = args.set_key
+        if set_api_key(provider, key):
+            print(f"✅ API key stored for {provider}")
+            print(f"You can now use Ronin without setting {provider.upper()}_API_KEY")
+        else:
+            print(f"❌ Failed to store API key for {provider}")
+        sys.exit(0)
+    
+    if args.remove_key:
+        if remove_api_key(args.remove_key):
+            print(f"✅ API key removed for {args.remove_key}")
+        else:
+            print(f"❌ No API key found for {args.remove_key}")
+        sys.exit(0)
+    
+    if args.list_keys:
+        providers = list_providers()
+        if providers:
+            print("📔 Stored API keys:")
+            for provider in providers:
+                # Show provider and masked key for security
+                key = get_api_key(provider)
+                if key:
+                    masked = key[:8] + "..." + key[-4:] if len(key) > 12 else "***"
+                    print(f"  - {provider}: {masked}")
+        else:
+            print("No API keys stored. Use --set-key to add one.")
+        sys.exit(0)
 
-    # Check for Claude API key in environment variables
+    # Check for Claude API key (from environment or stored secrets)
     # This key authenticates your requests to Claude AI
-    if not os.getenv("ANTHROPIC_API_KEY"):
-        print("Error: ANTHROPIC_API_KEY is not set", file=sys.stderr)
+    api_key = get_api_key("anthropic")
+    if not api_key:
+        print("Error: No API key found for Anthropic", file=sys.stderr)
+        print("Please either:", file=sys.stderr)
+        print("  1. Set ANTHROPIC_API_KEY environment variable", file=sys.stderr)
+        print("  2. Run: Ronin --set-key anthropic <your-api-key>", file=sys.stderr)
         # Exit with code 2 (configuration error)
         sys.exit(2)
+    
+    # Set the API key in environment for this session
+    # (The Anthropic client reads from environment)
+    if not os.getenv("ANTHROPIC_API_KEY"):
+        os.environ["ANTHROPIC_API_KEY"] = api_key
 
     # If no prompt provided, enter interactive mode
     if not args.prompt:
