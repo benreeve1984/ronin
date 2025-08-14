@@ -31,27 +31,51 @@ class FileMemory:
     Attributes:
         files: Dictionary mapping file paths to their contents
         access_order: List tracking access order for LRU eviction
+        content_hash: Track content hashes to detect changes
+        max_files: Maximum number of files to keep in memory
     """
     
-    def __init__(self):
+    def __init__(self, max_files: int = 10):
         """Initialize empty file memory."""
         self.files: Dict[str, str] = {}  # path -> content mapping
         self.access_order: List[str] = []  # LRU tracking
+        self.content_hash: Dict[str, int] = {}  # path -> hash for change detection
+        self.max_files = max_files
         
     def add_file(self, path: str, content: str):
         """
-        Add or update a file in memory.
+        Add or update a file in memory with deduplication.
         
         Args:
             path: File path as string
             content: File contents
             
         Note:
-            If file already exists, it's moved to end of access order (most recent)
+            - Only updates if content has changed
+            - Enforces max_files limit with LRU eviction
         """
+        content_hash = hash(content)
+        
+        # Skip if content hasn't changed
+        if path in self.files and self.content_hash.get(path) == content_hash:
+            # Just update access order
+            self.access_order.remove(path)
+            self.access_order.append(path)
+            return
+        
+        # Remove from access order if it exists
         if path in self.files:
             self.access_order.remove(path)
+        
+        # Enforce max files limit (LRU eviction)
+        while len(self.files) >= self.max_files and self.access_order:
+            oldest = self.access_order.pop(0)
+            del self.files[oldest]
+            del self.content_hash[oldest]
+        
+        # Add/update the file
         self.files[path] = content
+        self.content_hash[path] = content_hash
         self.access_order.append(path)
         
     def get_context(self, max_chars: int) -> str:
@@ -168,16 +192,30 @@ class ChatSession:
         # Add user message to conversation
         self.messages.append({"role": "user", "content": user_input})
         
+        # Compress context if needed before calling Claude
+        self.compress_context()
+        
         # Process with Claude
         operations_this_turn = 0
         
+        # Build system prompt ONCE per user turn (not per tool iteration!)
+        system_prompt = self.get_system_prompt()
+        tool_specs = get_tool_specs(self.root)
+        
         while operations_this_turn < self.max_steps:
             try:
-                # Get Claude's response
+                # Get Claude's response with prompt caching
+                # Cache system prompt and tools for 5 minutes (they don't change within a turn)
                 resp = self.client.messages.create(
                     model=self.model,
-                    system=self.get_system_prompt(),
-                    tools=get_tool_specs(self.root),
+                    system=[
+                        {
+                            "type": "text",
+                            "text": system_prompt,
+                            "cache_control": {"type": "ephemeral"}  # Cache for 5 minutes
+                        }
+                    ],
+                    tools=tool_specs,  # Tools are automatically cached when >1024 tokens
                     messages=self.messages,
                     max_tokens=2000,
                 )
@@ -288,13 +326,27 @@ Just type normally to interact with Ronin!
             tracer = get_tracer()
             tracing_status = "✅ Active" if tracer.enabled else "❌ Disabled (no API key)"
             
+            # Calculate context usage
+            estimated_tokens = self.estimate_context_size()
+            usage_percent = (estimated_tokens / MAX_CONTEXT_TOKENS) * 100
+            
+            # Create usage bar
+            bar_width = 20
+            filled = int(bar_width * usage_percent / 100)
+            bar = "█" * filled + "░" * (bar_width - filled)
+            
             print(f"""
 📊 Session Statistics:
   Messages: {len(self.messages)}
   Operations: {self.total_operations}
-  Files in memory: {len(self.file_memory.files)}
+  Files in memory: {len(self.file_memory.files)} (max: {self.file_memory.max_files})
   Root: {self.root}
   LangSmith Tracing: {tracing_status}
+  
+  Context Usage: [{bar}] {usage_percent:.1f}%
+  Tokens: ~{estimated_tokens:,} / {MAX_CONTEXT_TOKENS:,}
+  
+  Compression triggers at 80% ({int(MAX_CONTEXT_TOKENS * 0.8):,} tokens)
 """)
         else:
             print(f"\n❓ Unknown command: {command}")
@@ -302,23 +354,71 @@ Just type normally to interact with Ronin!
             
         return True
         
-    def trim_history(self):
-        """
-        Trim conversation history if it gets too long.
+    def estimate_context_size(self) -> int:
+        """Estimate current context size in tokens."""
+        # Count message history
+        message_chars = sum(len(str(msg)) for msg in self.messages)
         
-        This prevents the conversation from exceeding Claude's context window.
-        Keeps the most recent messages and discards older ones.
-        """
-        # Estimate total size
-        total_chars = sum(len(str(msg)) for msg in self.messages)
+        # Count file context
+        file_chars = len(self.file_memory.get_context(MAX_CONTEXT_TOKENS * CHARS_PER_TOKEN))
         
-        # If over 2/3 of limit, trim older messages
-        if total_chars > MAX_CONTEXT_TOKENS * CHARS_PER_TOKEN * 2 / 3:
-            # Keep system messages and recent messages
-            keep_recent = 10
-            if len(self.messages) > keep_recent:
-                self.messages = self.messages[-keep_recent:]
-                print("\n📋 (Trimmed older conversation history to stay within limits)")
+        # Count system prompt (rough estimate)
+        system_chars = 2000  # Approximate system prompt size
+        
+        total_chars = message_chars + file_chars + system_chars
+        return total_chars // CHARS_PER_TOKEN
+    
+    def compress_context(self):
+        """
+        Intelligently compress context when approaching limits.
+        
+        Strategy:
+        1. First, reduce file context (keep only most recent/relevant)
+        2. Then, summarize older conversation turns
+        3. Finally, hard trim if necessary
+        """
+        estimated_tokens = self.estimate_context_size()
+        
+        # Start compression at 80% of limit
+        if estimated_tokens < MAX_CONTEXT_TOKENS * 0.8:
+            return
+        
+        print("\n🗜️ Compressing context to stay within limits...")
+        
+        # Step 1: Reduce file memory (keep only 5 most recent)
+        if len(self.file_memory.files) > 5:
+            # Keep only the 5 most recently accessed files
+            to_remove = self.file_memory.access_order[:-5]
+            for path in to_remove:
+                del self.file_memory.files[path]
+                del self.file_memory.content_hash[path]
+            self.file_memory.access_order = self.file_memory.access_order[-5:]
+            print("  • Reduced file context to 5 most recent files")
+        
+        # Step 2: Compress old messages (keep first 2 and last 10)
+        if len(self.messages) > 15:
+            first_messages = self.messages[:2]  # Keep initial context
+            recent_messages = self.messages[-10:]  # Keep recent context
+            
+            # Create a summary of the middle messages
+            middle_count = len(self.messages) - 12
+            summary_msg = {
+                "role": "assistant",
+                "content": f"[Previous {middle_count} messages compressed - continuing conversation]"
+            }
+            
+            self.messages = first_messages + [summary_msg] + recent_messages
+            print(f"  • Compressed {middle_count} older messages")
+        
+        # Check if we're still over limit
+        estimated_tokens = self.estimate_context_size()
+        if estimated_tokens > MAX_CONTEXT_TOKENS * 0.95:
+            # Emergency trim - keep only last 5 messages
+            self.messages = self.messages[-5:]
+            self.file_memory.files.clear()
+            self.file_memory.access_order.clear()
+            self.file_memory.content_hash.clear()
+            print("  • Emergency trim: kept only last 5 messages, cleared file context")
 
 def interactive_mode(model: str, root: Path, auto_yes: bool, max_steps: int):
     """
