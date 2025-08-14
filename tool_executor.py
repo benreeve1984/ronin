@@ -314,11 +314,44 @@ class ToolExecutor:
         return "".join(diff)
     
     def _print_truncated_diff(self, diff: str, max_lines: int = 50):
-        """Print a diff, truncating if too long."""
+        """Print a diff with color coding, truncating if too long."""
+        # ANSI color codes
+        RED = '\033[91m'
+        GREEN = '\033[92m'
+        RESET = '\033[0m'
+        
         diff_lines = diff.split('\n')
-        if len(diff_lines) > max_lines:
-            print('\n'.join(diff_lines[:max_lines//2]))
-            print(f"\n... [{len(diff_lines) - max_lines} lines omitted] ...\n")
-            print('\n'.join(diff_lines[-max_lines//2:]))
+        
+        def colorize_line(line):
+            """Add color to diff lines."""
+            if line.startswith('-') and not line.startswith('---'):
+                return f"{RED}{line}{RESET}"
+            elif line.startswith('+') and not line.startswith('+++'):
+                return f"{GREEN}{line}{RESET}"
+            else:
+                return line
+        
+        # Apply colors to all lines
+        colored_lines = [colorize_line(line) for line in diff_lines]
+        
+        # Ensure proper spacing between removals and additions
+        output_lines = []
+        prev_was_removal = False
+        
+        for i, line in enumerate(colored_lines):
+            # Check if we're transitioning from removals to additions
+            if prev_was_removal and line.startswith(f"{GREEN}+"):
+                # Add a blank line if there isn't one already
+                if i > 0 and output_lines[-1].strip():
+                    output_lines.append("")
+            
+            output_lines.append(line)
+            prev_was_removal = line.startswith(f"{RED}-")
+        
+        # Print with truncation if needed
+        if len(output_lines) > max_lines:
+            print('\n'.join(output_lines[:max_lines//2]))
+            print(f"\n... [{len(output_lines) - max_lines} lines omitted] ...\n")
+            print('\n'.join(output_lines[-max_lines//2:]))
         else:
-            print(diff)
+            print('\n'.join(output_lines))
