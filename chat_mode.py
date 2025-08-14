@@ -324,6 +324,7 @@ class ChatSession:
         # Use the executor but capture the output quietly
         from pathlib import Path
         import tools
+        from tool_registry import get_tool
         
         try:
             path = tools.validate_path(self.root, args["path"])
@@ -345,7 +346,14 @@ class ChatSession:
             if self.file_memory:
                 self.file_memory.add_file(str(path), new)
             
-            return info, True
+            # Format the output properly using the tool's formatter
+            tool_def = get_tool("modify_file")
+            if tool_def and tool_def.formatter:
+                output = tool_def.formatter(info)
+            else:
+                output = str(info)
+            
+            return output, True
         except Exception as e:
             print(f"  ❌ Error modifying {args.get('path', 'file')}: {e}")
             return str(e), False
