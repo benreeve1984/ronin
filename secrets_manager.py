@@ -73,7 +73,7 @@ class SecretsManager:
         # Set restrictive permissions (owner only)
         try:
             os.chmod(CONFIG_DIR, stat.S_IRWXU)  # 700
-        except:
+        except (OSError, AttributeError):
             pass  # Windows doesn't support chmod
     
     def _get_encryption_key(self) -> bytes:
@@ -208,12 +208,12 @@ class SecretsManager:
                         obfuscated_data = file_path.read_bytes()
                         decrypted_data = self._deobfuscate(obfuscated_data)
                         secrets = json.loads(decrypted_data)
-                except:
+                except (json.JSONDecodeError, OSError, ValueError):
                     secrets = {}
             else:
                 try:
                     secrets = json.loads(file_path.read_text())
-                except:
+                except (json.JSONDecodeError, OSError):
                     secrets = {}
         
         # Update secrets
@@ -237,10 +237,15 @@ class SecretsManager:
         # Set restrictive permissions
         try:
             os.chmod(file_path, stat.S_IRUSR | stat.S_IWUSR)  # 600
-        except:
-            pass
+        except (OSError, AttributeError):
+            pass  # Windows doesn't support chmod
         
-        method = "encrypted" if CRYPTO_AVAILABLE and encrypted else "obfuscated" if encrypted else "protected"
+        if CRYPTO_AVAILABLE and encrypted:
+            method = "encrypted"
+        elif encrypted:
+            method = "obfuscated"
+        else:
+            method = "protected"
         logger.debug(f"Secret stored in {method} file: {provider}_{key}")
         return True
     
@@ -292,8 +297,8 @@ class SecretsManager:
                 keyring.delete_password(KEYRING_SERVICE, secret_id)
                 removed = True
                 logger.debug(f"Secret removed from keychain: {secret_id}")
-            except:
-                pass
+            except Exception as e:
+                logger.debug(f"Keyring delete failed: {e}")
         
         # Remove from files
         for encrypted in [True, False]:
@@ -328,8 +333,8 @@ class SecretsManager:
                         
                         removed = True
                         logger.debug(f"Secret removed from file: {secret_id}")
-                except:
-                    pass
+                except (json.JSONDecodeError, OSError) as e:
+                    logger.debug(f"File removal failed: {e}")
         
         return removed
     
@@ -350,8 +355,8 @@ class SecretsManager:
                 # We'd need to enumerate, but keyring doesn't provide this easily
                 # Skip for now
                 pass
-            except:
-                pass
+            except Exception:
+                pass  # Ignore keyring errors
         
         # Check files
         for encrypted in [True, False]:
@@ -376,8 +381,8 @@ class SecretsManager:
                         if provider not in all_secrets:
                             all_secrets[provider] = []
                         all_secrets[provider].extend(keys.keys())
-                except:
-                    pass
+                except (json.JSONDecodeError, OSError):
+                    pass  # Ignore file read errors
         
         # Deduplicate
         for provider in all_secrets:

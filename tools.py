@@ -2,7 +2,7 @@
 # Design philosophy: Minimal API, maximum power through composability
 
 from pathlib import Path
-from typing import Dict, Tuple
+from typing import Dict, Tuple, List
 from exceptions import (
     SandboxViolationError, InvalidFileTypeError, 
     FileNotFoundError as RoninFileNotFoundError,
@@ -199,6 +199,51 @@ def delete_file(path: Path) -> Dict:
         "size": size
     }
 
+def _find_anchor_indices(text: str, anchor: str) -> List[int]:
+    """Find all indices where anchor appears in text."""
+    indices = []
+    start = 0
+    while True:
+        idx = text.find(anchor, start)
+        if idx == -1:
+            break
+        indices.append(idx)
+        start = idx + 1
+    return indices
+
+def _select_target_indices(indices: List[int], occurrence: int) -> Tuple[List[int], str]:
+    """Select which occurrence(s) to modify based on occurrence parameter."""
+    if occurrence == 0:  # All occurrences
+        return indices, "all"
+    elif occurrence == -1:  # Last occurrence
+        return [indices[-1]], "last"
+    elif 0 < occurrence <= len(indices):  # Specific occurrence
+        return [indices[occurrence - 1]], f"#{occurrence}"
+    else:
+        raise ValueError(f"Invalid occurrence {occurrence} (found {len(indices)} matches)")
+
+def _apply_modification(content: str, targets: List[int], anchor: str, 
+                       action: str, new_text: str) -> str:
+    """Apply the modification action at target indices."""
+    result = content
+    offset = 0  # Track position changes from modifications
+    
+    for idx in targets:
+        actual_idx = idx + offset
+        anchor_end = actual_idx + len(anchor)
+        
+        if action == "before":
+            result = result[:actual_idx] + new_text + result[actual_idx:]
+            offset += len(new_text)
+        elif action == "after":
+            result = result[:anchor_end] + new_text + result[anchor_end:]
+            offset += len(new_text)
+        else:  # replace
+            result = result[:actual_idx] + new_text + result[anchor_end:]
+            offset += len(new_text) - len(anchor)
+    
+    return result
+
 def modify_file(path: Path, anchor: str = "", action: str = "after", 
                 content: str = "", occurrence: int = 1) -> Tuple[str, str, Dict]:
     """Modify a file using anchor-based operations.
@@ -269,14 +314,7 @@ def modify_file(path: Path, anchor: str = "", action: str = "after",
             change_info["position"] = "entire file"
     else:
         # Find anchor occurrences
-        indices = []
-        start = 0
-        while True:
-            idx = old_content.find(anchor, start)
-            if idx == -1:
-                break
-            indices.append(idx)
-            start = idx + 1
+        indices = _find_anchor_indices(old_content, anchor)
         
         if not indices:
             # Try to find similar text for suggestions
@@ -287,35 +325,11 @@ def modify_file(path: Path, anchor: str = "", action: str = "after",
         change_info["found_occurrences"] = len(indices)
         
         # Select which occurrence(s) to modify
-        if occurrence == 0:  # All occurrences
-            targets = indices
-            change_info["modified_occurrences"] = "all"
-        elif occurrence == -1:  # Last occurrence
-            targets = [indices[-1]]
-            change_info["modified_occurrences"] = "last"
-        elif 0 < occurrence <= len(indices):  # Specific occurrence
-            targets = [indices[occurrence - 1]]
-            change_info["modified_occurrences"] = f"#{occurrence}"
-        else:
-            raise ValueError(f"Invalid occurrence {occurrence} (found {len(indices)} matches)")
+        targets, occurrence_desc = _select_target_indices(indices, occurrence)
+        change_info["modified_occurrences"] = occurrence_desc
         
-        # Build new content by processing each target
-        new_content = old_content
-        offset = 0  # Track position changes from modifications
-        
-        for idx in targets:
-            actual_idx = idx + offset
-            anchor_end = actual_idx + len(anchor)
-            
-            if action == "before":
-                new_content = new_content[:actual_idx] + content + new_content[actual_idx:]
-                offset += len(content)
-            elif action == "after":
-                new_content = new_content[:anchor_end] + content + new_content[anchor_end:]
-                offset += len(content)
-            else:  # replace
-                new_content = new_content[:actual_idx] + content + new_content[anchor_end:]
-                offset += len(content) - len(anchor)
+        # Apply the modifications
+        new_content = _apply_modification(old_content, targets, anchor, action, content)
     
     # Write the modified content
     path.write_text(new_content, encoding="utf-8")

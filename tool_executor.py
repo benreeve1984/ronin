@@ -52,6 +52,16 @@ class ToolExecutor:
         self.auto_yes = auto_yes
         self.dry_run = dry_run
         self.file_memory = file_memory  # For chat mode context tracking
+        
+        # Dispatch table for tool execution
+        self._tool_executors = {
+            "list_files": self._execute_list_files,
+            "read_file": self._execute_read_file,
+            "search_files": self._execute_search_files,
+            "create_file": self._execute_create_file,
+            "delete_file": self._execute_delete_file,
+            "modify_file": self._execute_modify_file,
+        }
     
     def execute(self, tool_name: str, args: Dict[str, Any]) -> Tuple[str, bool]:
         """
@@ -85,22 +95,9 @@ class ToolExecutor:
                 # Validate parameters
                 self._validate_parameters(tool_def, args)
                 
-                # Execute based on tool type
-                if tool_name == "list_files":
-                    result = self._execute_list_files(tool_def, args)
-                elif tool_name == "read_file":
-                    result = self._execute_read_file(tool_def, args)
-                elif tool_name == "search_files":
-                    result = self._execute_search_files(tool_def, args)
-                elif tool_name == "create_file":
-                    result = self._execute_create_file(tool_def, args)
-                elif tool_name == "delete_file":
-                    result = self._execute_delete_file(tool_def, args)
-                elif tool_name == "modify_file":
-                    result = self._execute_modify_file(tool_def, args)
-                else:
-                    # Generic execution for future tools
-                    result = self._execute_generic(tool_def, args)
+                # Execute using dispatch table or generic handler
+                executor = self._tool_executors.get(tool_name, self._execute_generic)
+                result = executor(tool_def, args)
                 
                 # Standardized success message
                 output, success = result

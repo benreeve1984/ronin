@@ -13,6 +13,7 @@ from datetime import datetime
 from tool_registry import get_tool_specs
 from tool_executor import ToolExecutor
 from prompts import get_system_prompt, FILE_CONTEXT_TEMPLATE, format_prompt
+from utils import parse_claude_response
 
 # Token limits (approximate - using character count as proxy)
 MAX_CONTEXT_TOKENS = 140_000
@@ -175,15 +176,10 @@ class ChatSession:
                     max_tokens=2000,
                 )
                 
-                # Print any explanatory text
-                for block in resp.content:
-                    if getattr(block, "type", None) == "text":
-                        text = block.text.strip()
-                        if text:
-                            print(f"\n🤖 {text}")
-                
-                # Extract tool requests
-                tool_uses = [b for b in resp.content if getattr(b, "type", None) == "tool_use"]
+                # Parse and print Claude's response
+                text, tool_uses = parse_claude_response(resp.content)
+                if text:
+                    print(f"\n🤖 {text}")
                 
                 # Add assistant message to history
                 self.messages.append({"role": "assistant", "content": resp.content})

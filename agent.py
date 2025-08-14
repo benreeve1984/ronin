@@ -8,6 +8,7 @@ from pathlib import Path
 from tool_registry import get_tool_specs
 from tool_executor import ToolExecutor
 from prompts import get_system_prompt
+from utils import parse_claude_response
 
 def run_once(prompt: str, model: str, root: Path, auto_yes: bool, dry_run: bool, max_steps: int) -> bool:
     """
@@ -62,15 +63,10 @@ def run_once(prompt: str, model: str, root: Path, auto_yes: bool, dry_run: bool,
             max_tokens=2000,  # Enough for complex operations
         )
 
-        # Print any explanatory text from Claude
-        for block in resp.content:
-            if getattr(block, "type", None) == "text":
-                text = block.text.strip()
-                if text:  # Only print non-empty text
-                    print(f"\n🤖 {text}")
-
-        # Extract tool use requests from Claude's response
-        tool_uses = [b for b in resp.content if getattr(b, "type", None) == "tool_use"]
+        # Parse Claude's response
+        text, tool_uses = parse_claude_response(resp.content)
+        if text:
+            print(f"\n🤖 {text}")
         
         if not tool_uses:
             # No more tools requested - task is complete!

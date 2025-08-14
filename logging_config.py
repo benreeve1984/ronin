@@ -136,66 +136,38 @@ class ToolExecutionLogger:
         
         return False  # Don't suppress exceptions
     
-    def _add_extras(self, record, context=None, **kwargs):
-        """Add extra fields to log record."""
-        record.trace_id = self.trace_id
-        record.tool_name = self.tool_name
+    def _build_extra(self, context: Optional[Dict] = None, **kwargs) -> Dict:
+        """Build extra fields for log record."""
+        extra = {
+            'trace_id': self.trace_id,
+            'tool_name': self.tool_name
+        }
         if context:
-            record.context = context
-        for key, value in kwargs.items():
-            setattr(record, key, value)
+            extra['context'] = context
+        extra.update(kwargs)
+        return extra
     
     def debug(self, message: str, context: Optional[Dict] = None, **kwargs):
         """Log debug message with context."""
-        extra = {}
-        if hasattr(self, 'trace_id'):
-            extra['trace_id'] = self.trace_id
-        if hasattr(self, 'tool_name'):
-            extra['tool_name'] = self.tool_name
-        if context:
-            extra['context'] = context
-        extra.update(kwargs)
-        self.logger.debug(message, extra=extra if extra else None)
+        self.logger.debug(message, extra=self._build_extra(context, **kwargs))
     
     def info(self, message: str, context: Optional[Dict] = None, **kwargs):
         """Log info message with context."""
-        extra = {}
-        if hasattr(self, 'trace_id'):
-            extra['trace_id'] = self.trace_id
-        if hasattr(self, 'tool_name'):
-            extra['tool_name'] = self.tool_name
-        if context:
-            extra['context'] = context
-        extra.update(kwargs)
-        self.logger.info(message, extra=extra if extra else None)
+        self.logger.info(message, extra=self._build_extra(context, **kwargs))
     
     def warning(self, message: str, context: Optional[Dict] = None, **kwargs):
         """Log warning message with context."""
-        extra = {}
-        if hasattr(self, 'trace_id'):
-            extra['trace_id'] = self.trace_id
-        if hasattr(self, 'tool_name'):
-            extra['tool_name'] = self.tool_name
-        if context:
-            extra['context'] = context
-        extra.update(kwargs)
-        self.logger.warning(message, extra=extra if extra else None)
+        self.logger.warning(message, extra=self._build_extra(context, **kwargs))
     
     def error(self, message: str, error: Optional[str] = None, 
               recovery_hints: Optional[str] = None, context: Optional[Dict] = None):
         """Log error with recovery hints."""
-        extra = {}
-        if hasattr(self, 'trace_id'):
-            extra['trace_id'] = self.trace_id
-        if hasattr(self, 'tool_name'):
-            extra['tool_name'] = self.tool_name
+        extra_kwargs = {}
         if error:
-            extra['error_type'] = error
+            extra_kwargs['error_type'] = error
         if recovery_hints:
-            extra['recovery_hints'] = recovery_hints
-        if context:
-            extra['context'] = context
-        self.logger.error(message, extra=extra if extra else None)
+            extra_kwargs['recovery_hints'] = recovery_hints
+        self.logger.error(message, extra=self._build_extra(context, **extra_kwargs))
     
     def success(self, message: str, context: Optional[Dict] = None):
         """Log successful completion (to file only)."""

@@ -1,360 +1,271 @@
-# Ronin - A Minimal CLI LLM Agent for Text File Management
+# 🥷 Ronin
 
-## What is Ronin?
+A minimal, powerful CLI agent that brings LLM capabilities directly to your codebase. Built with Claude's API, Ronin helps you read, write, search, and modify files with natural language commands.
 
-Ronin is a command-line tool that uses Claude AI to help you manage and edit text files (`.md` and `.txt`) in your projects. Think of it as an AI assistant that can read, write, and organize your documentation and text files automatically based on your natural language instructions.
+> **Current Status**: Ronin currently focuses on text files (markdown, code, config files, etc.) with a robust foundation for file operations. We're actively expanding to support more file formats, external tools, and integrations. The architecture is designed to make adding new capabilities straightforward.
 
-## Quick Start
+## ✨ Features
+
+### What Ronin Does Today
+- **Natural Language File Operations** - Just describe what you want: "Add error handling to the login function" or "Find all TODO comments"
+- **Smart Context Management** - 140k token context window with intelligent file memory
+- **Interactive Chat Mode** - Have conversations about your code with persistent context
+- **Safe by Default** - Sandboxed execution, confirmation prompts, and dry-run mode
+- **Powerful Search** - Fast, grep-like search across your entire codebase
+- **Anchor-Based Editing** - Precise text modifications using surrounding context
+- **Secure API Key Storage** - Store keys once, use everywhere
+
+### Why Ronin?
+- **Extensible Architecture** - Built from the ground up to easily add new tools and capabilities
+- **Clean Abstractions** - Single source of truth for tools, standardized execution, unified error handling
+- **Production Ready Foundation** - Structured logging, proper error recovery, secure secrets management
+- **Rapid Development** - New tools can be added in minutes, not hours
+
+## 🚀 Quick Start
+
+### Installation
 
 ```bash
-# Install
+# Clone the repository
+git clone https://github.com/yourusername/ronin.git
+cd ronin
+
+# Install in development mode
 pip install -e .
-
-# Set your API key
-export ANTHROPIC_API_KEY="your-api-key-here"
-
-# Use Ronin
-Ronin "Create a TODO list in tasks.md"
-Ronin "Add a new section about installation to README"
-Ronin "Replace all occurrences of 'old_name' with 'new_name' in docs.txt"
 ```
 
-## Project Structure
+### Setup
+
+Store your Anthropic API key (one-time setup):
+
+```bash
+python cli.py --set-key anthropic YOUR_API_KEY
+```
+
+Or set it as an environment variable:
+
+```bash
+export ANTHROPIC_API_KEY=your_api_key_here
+```
+
+### Basic Usage
+
+```bash
+# Single command mode
+python cli.py "list all markdown files"
+python cli.py "create a README with installation instructions"
+python cli.py "find all functions that handle authentication"
+
+# Interactive chat mode (just run without arguments)
+python cli.py
+
+# Work in a specific directory
+python cli.py "update the config file" --root ./my-project
+
+# Dry run to preview changes
+python cli.py "refactor the database module" --plan
+
+# Manual confirmation mode
+python cli.py "delete all test files" --no-auto-yes
+```
+
+## 💬 Interactive Mode
+
+Launch an interactive session to have a conversation about your code:
+
+```bash
+python cli.py
+```
+
+In interactive mode:
+- Chat naturally about your codebase
+- Files remain in context across messages
+- Use `/help` for available commands
+- Use `/clear` to reset context
+- Use `/exit` to quit
+
+## 🛠️ Available Tools
+
+Ronin can:
+- **List Files** - Find files by pattern or extension
+- **Read Files** - Load file contents with optional line ranges
+- **Create Files** - Generate new files with content
+- **Delete Files** - Remove files safely
+- **Modify Files** - Edit files using anchor text or line positions
+- **Search Files** - Find text across your codebase with context
+
+## 🔧 Configuration
+
+### Command Line Options
+
+- `--root PATH` - Set the working directory (sandbox boundary)
+- `--no-auto-yes` - Require confirmation for each change
+- `--plan` - Dry-run mode to preview without making changes
+- `--max-steps N` - Limit the number of operations (default: 10)
+- `--model MODEL` - Choose Claude model (default: claude-3-5-sonnet)
+
+### Environment Variables
+
+- `ANTHROPIC_API_KEY` - Your Anthropic API key
+- `RONIN_MODEL` - Default model to use
+- `RONIN_LOG_LEVEL` - Logging verbosity (DEBUG, INFO, WARNING, ERROR)
+- `RONIN_LOG_TO_FILE` - Enable file logging (true/false)
+
+### Secrets Management
+
+```bash
+# Store a key
+python cli.py --set-key anthropic sk-ant-...
+
+# List stored keys
+python cli.py --list-keys
+
+# Remove a key
+python cli.py --remove-key anthropic
+```
+
+Keys are stored securely in `~/.ronin/secrets.enc` with machine-specific encryption.
+
+## 📁 Project Structure
 
 ```
 ronin/
-├── cli.py           # Command-line interface entry point
-├── agent.py         # AI orchestration for single-shot mode
-├── chat_mode.py     # Interactive conversation mode
-├── tools.py         # Core file operation implementations
-├── tool_registry.py # SINGLE SOURCE OF TRUTH for all tools
-├── tool_executor.py # Centralized tool execution logic
-├── prompts.py       # All AI prompts in one place
-└── pyproject.toml   # Package configuration
+├── cli.py              # CLI entry point and argument parsing
+├── agent.py            # Core agent logic for single commands
+├── chat_mode.py        # Interactive chat session handler
+├── tools.py            # File operation implementations
+├── tool_registry.py    # Tool definitions and specifications
+├── tool_executor.py    # Unified tool execution handler
+├── prompts.py          # System prompts and templates
+├── exceptions.py       # Custom errors with recovery hints
+├── logging_config.py   # Structured logging setup
+└── secrets_manager.py  # Secure API key storage
 ```
 
-## Core Design: Simplicity Through Composability
+## 🎯 Design Philosophy
 
-Ronin uses a revolutionary **anchor-based modification** system. Instead of dozens of specialized functions, we have just **4 core operations** that can express any text manipulation:
+Ronin follows these principles:
 
-### The Core Operations
+1. **Minimal** - Simple, focused tools that do one thing well
+2. **Composable** - Tools can be combined for complex operations
+3. **Safe** - Sandboxed execution with confirmation prompts
+4. **Transparent** - Clear feedback about what's happening
+5. **Extensible** - Easy to add new tools and capabilities
 
-1. **`create_file(path, content)`** - Create new files
-2. **`delete_file(path)`** - Delete files  
-3. **`modify_file(path, anchor, action, content, occurrence)`** - Universal modification
-4. **`search_files(text, pattern, case_sensitive, context_lines)`** - Fast text search across files
+## 🔐 Security
 
-### The Power of modify_file
+- **Sandboxed Execution** - Operations are restricted to the specified root directory
+- **Confirmation Prompts** - Destructive operations require confirmation (unless using auto-yes)
+- **Secure Key Storage** - API keys are encrypted with machine-specific keys
+- **No Phone Home** - All operations are local, no telemetry
 
-The `modify_file` function uses a simple mental model:
-- **Find an anchor** (text to search for, or use file boundaries)
-- **Perform an action** relative to that anchor
-- **Optionally specify which occurrence** to modify
+## 📊 Logging
 
-#### Parameters:
-- `anchor`: Text to find (empty = file boundaries)
-- `action`: One of "before", "after", "replace"
-- `content`: New text (empty = delete)
-- `occurrence`: Which match (1=first, -1=last, 0=all)
+Ronin provides structured logging for debugging and monitoring:
 
-#### Examples:
+- Logs are stored in `~/.ronin/logs/`
+- JSON format for easy parsing
+- Configurable verbosity levels
+- Trace IDs for tracking operations
 
-| Task | How to Do It |
-|------|-------------|
-| Append to file | `modify_file(path, "", "after", "new text")` |
-| Insert at beginning | `modify_file(path, "", "before", "header")` |
-| Replace entire file | `modify_file(path, "", "replace", "new content")` |
-| Insert after TODO | `modify_file(path, "TODO:", "after", "- item")` |
-| Delete text | `modify_file(path, "old", "replace", "")` |
-| Replace all occurrences | `modify_file(path, "old", "replace", "new", 0)` |
+## 🚦 Roadmap
 
-### The Power of search_files
+### Currently Supported
+- ✅ Text files (`.md`, `.txt`, `.py`, `.js`, `.json`, `.yaml`, etc.)
+- ✅ Natural language file operations
+- ✅ Interactive chat mode
+- ✅ Secure API key management
+- ✅ Structured logging
 
-The `search_files` function provides human-friendly text search across multiple files, like Ctrl+F but for your entire project:
+### Coming Soon
+- 🔄 Binary file support (images, PDFs, spreadsheets)
+- 🔄 Git operations (commit, branch, merge)
+- 🔄 Shell command execution
+- 🔄 Web browsing and API calls
+- 🔄 Database connections
+- 🔄 Cloud service integrations
 
-#### Parameters:
-- `text`: What to search for (required)
-- `pattern`: Which files to search (default: all)
-- `case_sensitive`: Case-sensitive search (default: False)
-- `context_lines`: Lines to show before/after matches (default: 2)
+### Future Vision
+- 📋 Project-wide refactoring
+- 📋 Test generation and execution
+- 📋 Documentation generation
+- 📋 Multi-file transactions
+- 📋 Plugin system for custom tools
 
-#### Features:
-- **Fast**: No indexing required, searches line-by-line
-- **Human-friendly**: Case-insensitive by default
-- **Context-aware**: Shows surrounding lines to understand usage
-- **Smart truncation**: Limits to 10 matches per file to avoid spam
+## 🔌 Extending Ronin
 
-#### Examples:
-```bash
-# Find all TODO items
-Ronin "search for TODO"
+Adding new tools is straightforward thanks to our modular architecture:
 
-# Search only in markdown files
-Ronin "find all mentions of API in *.md files"
+1. Define your tool in `tool_registry.py`
+2. Implement the handler in `tools.py`
+3. Tools automatically get standardized execution, logging, and error handling
 
-# Case-sensitive search with no context
-Ronin "search for 'MyClass' case-sensitive with 0 context lines"
-```
-
-## Clean Architecture
-
-### Adding New Tools
-Adding a new tool is now incredibly simple! Just add it to `tool_registry.py`:
-
+Example:
 ```python
-TOOLS = {
-    "your_new_tool": ToolDefinition(
-        name="your_new_tool",
-        description="What it does",
-        category="read/write/search",
-        parameters={...},
-        handler=your_function,
-        formatter=your_formatter,  # Optional
-        needs_confirmation=True    # Ask user first?
-    )
-}
+# In tool_registry.py
+TOOLS["my_tool"] = ToolDefinition(
+    name="my_tool",
+    description="What this tool does",
+    handler=my_tool_handler,
+    parameters={...}
+)
 ```
 
-That's it! The tool is now:
-- Available to Claude AI
-- Handled by the executor
-- Working in both modes (single-shot and interactive)
+## 🤝 Contributing
 
-### Key Benefits of the New Architecture
+Contributions are welcome! We're especially looking for:
 
-1. **Single Source of Truth**: All tools defined in one place (`tool_registry.py`)
-2. **No Duplication**: Tool execution logic shared between modes
-3. **Easy to Extend**: Add new tools by adding config, not code
-4. **Maintainable**: Clear separation of concerns
-5. **Testable**: Each component can be tested independently
+- **New file format support** - Help us handle more file types
+- **Tool integrations** - Connect Ronin to your favorite services
+- **Bug fixes and improvements** - Make Ronin better for everyone
 
-## How Each File Works
+How to contribute:
 
-### 1. **cli.py** - The Entry Point
-Processes command-line arguments and launches the agent.
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes
+4. Add tests if applicable
+5. Submit a pull request
 
-**Key arguments:**
-- `prompt`: Your request in natural language
-- `--root`: Directory to work in (default: current)
-- `--yes`: Auto-approve changes
-- `--plan`: Preview mode (dry run)
-- `--max-steps`: Limit tool operations (default: 10)
+## 📝 License
 
-### 2. **agent.py** - The AI Brain
-Connects to Claude AI and orchestrates tool execution.
+MIT License - see LICENSE file for details
 
-**What it does:**
-- Sends your request to Claude
-- Provides available tools to the AI
-- Executes requested operations
-- Shows diffs before applying changes
-- Handles user confirmation
+## 🙏 Acknowledgments
 
-### 3. **tool_registry.py** - Tool Definitions
-The SINGLE SOURCE OF TRUTH for all tools. Define once, use everywhere.
+Built with:
+- [Anthropic's Claude API](https://www.anthropic.com/)
+- Python's pathlib for robust file operations
+- Rich logging and error handling
 
-### 4. **tool_executor.py** - Tool Execution
-Handles all tool execution, confirmations, and formatting.
+## 💡 Tips
 
-### 5. **prompts.py** - AI Prompts
-All prompts in one place for easy modification and migration to tools like Langfuse.
+- Use `CLAUDE.md` files in your projects to give Ronin context about your codebase
+- The `--plan` flag is great for understanding what changes will be made
+- In chat mode, Ronin remembers files you've discussed for better context
+- Search supports regex patterns for advanced queries
 
-### 6. **tools.py** - File Operations
-The core file manipulation implementations.
+## 🐛 Troubleshooting
 
-**Core functions:**
-- `validate_path()`: Ensures sandbox security
-- `list_files()`: Browse files with patterns
-- `read_file()`: Read text content
-- `create_file()`: Create new files
-- `delete_file()`: Remove files
-- `modify_file()`: Universal text modification
-- `search_files()`: Fast text search across files
+### API Key Issues
+- Ensure your API key is set correctly with `--set-key` or environment variable
+- Check key validity with `--list-keys`
 
-**Security features:**
-- Path sandboxing (can't escape root)
-- File type restrictions (.md/.txt only)
-- Size limits for safety
-- Clear error messages
+### Permission Errors
+- Ronin respects file system permissions
+- Ensure you have read/write access to the target directory
 
-## Installation & Setup
+### Context Limits
+- Large files may exceed context limits
+- Use line ranges when reading large files: `"read lines 100-200 of big_file.py"`
 
-### Prerequisites
-- Python 3.7 or higher
-- Anthropic API key
+## 📧 Support
 
-### Steps
+For issues, questions, or suggestions:
+- Open an issue on GitHub
+- Check existing issues for solutions
+- Include error messages and steps to reproduce
 
-1. **Clone the repository**:
-   ```bash
-   git clone <repository-url>
-   cd ronin
-   ```
+---
 
-2. **Install the package**:
-   ```bash
-   pip install -e .
-   ```
-
-3. **Set your API key**:
-   ```bash
-   export ANTHROPIC_API_KEY="sk-ant-..."
-   ```
-   Add to your shell profile (.bashrc, .zshrc) to make permanent.
-
-4. **Test it works**:
-   ```bash
-   Ronin "Create a file called hello.txt with 'Hello World' content"
-   ```
-
-## Common Use Cases
-
-### Creating Documentation
-```bash
-Ronin "Create a comprehensive API documentation file"
-```
-
-### Updating Files
-```bash
-Ronin "Add installation instructions after the introduction in README.md"
-```
-
-### Bulk Find & Replace
-```bash
-Ronin "Replace all instances of 'foo' with 'bar' in config.txt"
-```
-
-### Deleting Content
-```bash
-Ronin "Remove the deprecated section from docs.md"
-```
-
-### Organizing Files
-```bash
-Ronin "Add proper markdown headings to notes.txt"
-```
-
-## Command-Line Options
-
-| Option | Description | Example |
-|--------|-------------|---------|
-| `--root DIR` | Set working directory | `--root ./docs` |
-| `--yes` | Auto-approve all changes | `--yes` |
-| `--plan` | Preview without applying | `--plan` |
-| `--max-steps N` | Limit AI operations | `--max-steps 5` |
-| `--model NAME` | Choose Claude model | `--model claude-3-opus` |
-
-## Safety Features
-
-1. **Sandboxing**: Can only access files within specified root
-2. **File Type Restriction**: Only .md and .txt files
-3. **Confirmation Prompts**: Reviews changes before applying
-4. **Dry Run Mode**: Preview with `--plan`
-5. **Diff Display**: Shows exactly what will change
-6. **Size Limits**: Prevents memory issues with large files
-
-## Environment Variables
-
-- `ANTHROPIC_API_KEY`: Required - Your Claude API key
-- `RONIN_MODEL`: Optional - Default model to use
-
-## Architecture Overview
-
-```
-User Input → CLI Parser → Agent Controller → Claude AI
-                                    ↓
-                          Tool Selection (create/delete/modify)
-                                    ↓
-                            File Operations (tools.py)
-                                    ↓
-                          User Confirmation → Apply Changes
-```
-
-## Design Philosophy
-
-> "Perfection is achieved not when there is nothing more to add, but when there is nothing left to take away." - Antoine de Saint-Exupéry
-
-Ronin embodies this principle with its minimal yet powerful design:
-- **3 operations** instead of dozens
-- **One mental model** for all modifications
-- **70% less code** than traditional approaches
-- **More capabilities** through composability
-
-## Troubleshooting
-
-### "ANTHROPIC_API_KEY is not set"
-```bash
-export ANTHROPIC_API_KEY="your-key-here"
-```
-
-### "Path escapes root"
-Ronin detected an attempt to access files outside the project. Check your paths.
-
-### "Only .md/.txt are allowed"
-Convert other formats to text/markdown first.
-
-### Changes not applying
-Make sure you're typing 'y' when prompted, or use `--yes` flag.
-
-## Advanced Usage
-
-### Using Patterns
-```bash
-Ronin "List all markdown files in the docs folder"
-```
-
-### Complex Modifications
-```bash
-Ronin "In all .md files, add a copyright notice at the end"
-```
-
-### Dry Run First
-```bash
-Ronin "Reorganize the entire documentation" --plan
-# Review the plan, then run without --plan
-```
-
-## Contributing
-
-To modify Ronin:
-1. Edit the Python files directly
-2. Test changes: `python -m ronin.cli "test prompt"`
-3. Reinstall if needed: `pip install -e .`
-
-## Key Concepts
-
-**Anchor-Based Modification**: Everything is about finding a position (anchor) and performing an action relative to it.
-
-**Composability**: Simple operations combine to create complex behaviors.
-
-**Sandboxing**: Security through strict path validation.
-
-**Transparency**: Always show what will change before changing it.
-
-## Security Notes
-
-- Never share your `ANTHROPIC_API_KEY`
-- Be cautious with `--yes` flag
-- Always specify `--root` carefully
-- Review diffs before confirming changes
-
-## Why Ronin?
-
-Traditional file manipulation tools have dozens of functions with complex parameters. Ronin proves that **3 simple operations** can do everything and more:
-
-- **Simpler**: One pattern to learn
-- **More Powerful**: Can do things other tools can't
-- **Safer**: Clear diffs and confirmations
-- **Cleaner**: 50% less code to maintain
-
-## License
-
-[Your license here]
-
-## Support
-
-For issues or questions:
-- Review this README thoroughly
-- Check the troubleshooting section
-- Ensure your API key is valid
-- Verify you're using .md or .txt files only
+*Ronin: Your silent, efficient coding companion* 🥷
