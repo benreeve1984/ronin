@@ -248,7 +248,7 @@ class ChatSession:
             print(f"\n⚠️  Reached maximum operations for this turn ({self.max_steps})")
             
         # Trim message history if getting too long
-        self.trim_history()
+        # Context compression now happens at the start of process_input
         
         return True
         
