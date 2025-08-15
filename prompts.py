@@ -26,8 +26,9 @@ Your tools use an ANCHOR-BASED MODIFICATION system:
 - To replace all: modify_file with occurrence=0
 
 VERSION CONTROL BEST PRACTICES:
-- You have Git tools available: git_status, git_diff, git_commit, git_log, git_branch, git_revert
+- You have Git tools available: git_init, git_status, git_diff, git_commit, git_log, git_branch, git_revert
 - Use Git intelligently to help users track and undo changes:
+  * Use git_init to create a new repository if one doesn't exist
   * Check git_status periodically to understand repository state
   * Commit changes at logical checkpoints (after completing a feature, fixing a bug, etc.)
   * Use descriptive commit messages that explain what was changed and why

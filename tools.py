@@ -508,6 +508,89 @@ def run_git_command(root: Path, command: List[str]) -> Tuple[bool, str, str]:
     except Exception as e:
         return False, "", str(e)
 
+@trace_tool(name="git_init", metadata={"category": "git"})
+def git_init(root: Path, initial_branch: str = "main") -> Dict:
+    """Initialize a new git repository.
+    
+    Args:
+        root: Directory to initialize as a git repository
+        initial_branch: Name for the initial branch (default: main)
+        
+    Returns:
+        Dict with initialization result
+    """
+    # Check if already a git repo
+    success, _, _ = run_git_command(root, ["rev-parse", "--git-dir"])
+    if success:
+        return {"error": "Repository already exists in this directory"}
+    
+    # Initialize the repository
+    success, output, error = run_git_command(root, ["init"])
+    if not success:
+        return {"error": error or "Failed to initialize repository"}
+    
+    # Set the initial branch name if not main/master
+    if initial_branch and initial_branch not in ["main", "master"]:
+        # Try to set initial branch (Git 2.28+)
+        run_git_command(root, ["config", "init.defaultBranch", initial_branch])
+        # Also try to rename current branch
+        run_git_command(root, ["branch", "-M", initial_branch])
+    elif initial_branch == "main":
+        # Ensure we're using 'main' instead of old default 'master'
+        success_rename, _, _ = run_git_command(root, ["branch", "-M", "main"])
+        if not success_rename:
+            # Try setting for future
+            run_git_command(root, ["config", "init.defaultBranch", "main"])
+    
+    # Get the actual branch name
+    success_branch, branch_name, _ = run_git_command(root, ["branch", "--show-current"])
+    
+    # Check if .gitignore should be created
+    gitignore_path = root / ".gitignore"
+    if not gitignore_path.exists():
+        # Create a basic .gitignore for common files
+        basic_gitignore = """# Ronin agent files
+.ronin_history
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor files
+*.swp
+*.swo
+*~
+.vscode/
+.idea/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# Node
+node_modules/
+npm-debug.log
+"""
+        try:
+            gitignore_path.write_text(basic_gitignore)
+        except:
+            pass  # Not critical if it fails
+    
+    result = {
+        "path": str(root),
+        "initialized": True
+    }
+    
+    if success_branch and branch_name:
+        result["default_branch"] = branch_name.strip()
+    else:
+        result["default_branch"] = initial_branch or "main"
+    
+    return result
+
 @trace_tool(name="git_status", metadata={"category": "git"})
 def git_status(root: Path) -> Dict:
     """Check git repository status.

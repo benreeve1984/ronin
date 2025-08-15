@@ -64,6 +64,7 @@ class ToolExecutor:
             "delete_file": self._execute_delete_file,
             "modify_file": self._execute_modify_file,
             # Git tools
+            "git_init": self._execute_git_init,
             "git_status": self._execute_generic,
             "git_diff": self._execute_generic,
             "git_commit": self._execute_git_commit,
@@ -120,7 +121,7 @@ class ToolExecutor:
                 
                 # Log to history for important operations
                 if tool_name in ["create_file", "delete_file", "modify_file", 
-                                 "git_commit", "git_branch", "git_revert"]:
+                                 "git_init", "git_commit", "git_branch", "git_revert"]:
                     self._log_operation(tool_name, args, success, output)
                 
                 log.debug(f"{tool_name} completed")
@@ -372,6 +373,25 @@ class ToolExecutor:
             print('\n'.join(output_lines[-max_lines//2:]))
         else:
             print('\n'.join(output_lines))
+    
+    def _execute_git_init(self, tool_def: ToolDefinition, args: Dict) -> Tuple[str, bool]:
+        """Execute git_init with confirmation."""
+        initial_branch = args.get("initial_branch", "main")
+        
+        if self.dry_run:
+            print(f"  → [DRY RUN] Would initialize git repository with branch: {initial_branch}")
+            return f"[DRY RUN] Would initialize git repository", True
+        
+        # Ask for confirmation if needed
+        if not self.auto_yes and tool_def.needs_confirmation:
+            prompt = f"\n🎯 Initialize Git repository?\n   Initial branch: {initial_branch}\n   Location: {self.root}\n\nProceed? [y/N]: "
+            if input(prompt).lower() not in ("y", "yes"):
+                return "User declined git initialization", False
+        
+        # Execute init
+        result = tool_def.handler(self.root, initial_branch)
+        output = tool_def.formatter(result) if tool_def.formatter else str(result)
+        return output, "error" not in result
     
     def _execute_git_commit(self, tool_def: ToolDefinition, args: Dict) -> Tuple[str, bool]:
         """Execute git_commit with confirmation."""

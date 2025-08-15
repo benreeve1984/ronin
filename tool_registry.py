@@ -102,6 +102,40 @@ def format_file_modification(info: Dict) -> str:
         f"  - Lines: {info['old_lines']} → {info['new_lines']} ({info['line_change']:+d})"
     )
 
+def format_git_init(result: Dict) -> str:
+    """Format git init output in an AI-friendly way."""
+    if "error" in result:
+        error_msg = result['error']
+        if "already exists" in error_msg.lower() or "reinitialize" in error_msg.lower():
+            return ("⚠️ Git repository already exists\n"
+                   "  → This directory is already under version control\n"
+                   "  → You can start using git commands immediately\n"
+                   "  → Check status with git_status()")
+        else:
+            return f"Git Error: {error_msg}\n  → Failed to initialize repository"
+    
+    output = ["🎉 GIT REPOSITORY INITIALIZED!"]
+    
+    if result.get("path"):
+        output.append(f"\n📁 Location: {result['path']}")
+    
+    output.append("\n✅ What this means:")
+    output.append("  → Version control is now active")
+    output.append("  → All file changes can be tracked")
+    output.append("  → You can create commits to save checkpoints")
+    output.append("  → Revert changes when needed")
+    
+    output.append("\n🚀 Next steps:")
+    output.append("  → Use git_status() to see current state")
+    output.append("  → Make changes to files")
+    output.append("  → Use git_commit(message='Initial commit', add_all=True) to save")
+    
+    if result.get("default_branch"):
+        output.append(f"\n🌿 Default branch: {result['default_branch']}")
+        output.append("  → This is your main working branch")
+    
+    return "\n".join(output)
+
 def format_git_status(result: Dict) -> str:
     """Format git status output in an AI-friendly way."""
     if "error" in result:
@@ -545,6 +579,22 @@ TOOLS = {
     # ============================================================================
     # GIT TOOLS - Version control integration
     # ============================================================================
+    
+    "git_init": ToolDefinition(
+        name="git_init",
+        description="Initialize a new git repository in the current directory. Creates .git folder and sets up version control.",
+        category="git",
+        parameters={
+            "initial_branch": {
+                "type": "string",
+                "default": "main",
+                "description": "Name for the initial branch. Default: 'main'"
+            }
+        },
+        handler=tools.git_init,
+        formatter=format_git_init,
+        needs_confirmation=True  # Ask before creating repository
+    ),
     
     "git_status": ToolDefinition(
         name="git_status",
