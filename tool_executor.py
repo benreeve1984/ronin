@@ -6,6 +6,8 @@
 from pathlib import Path
 from typing import Dict, Any, Optional, Tuple
 import difflib
+import json
+from datetime import datetime
 from tool_registry import get_tool, ToolDefinition, TOOLS
 from prompts import get_confirmation_prompt
 import tools
@@ -61,7 +63,17 @@ class ToolExecutor:
             "create_file": self._execute_create_file,
             "delete_file": self._execute_delete_file,
             "modify_file": self._execute_modify_file,
+            # Git tools
+            "git_status": self._execute_generic,
+            "git_diff": self._execute_generic,
+            "git_commit": self._execute_git_commit,
+            "git_log": self._execute_generic,
+            "git_branch": self._execute_git_branch,
+            "git_revert": self._execute_git_revert,
         }
+        
+        # Initialize operation history
+        self._init_history()
     
     def execute(self, tool_name: str, args: Dict[str, Any]) -> Tuple[str, bool]:
         """
@@ -105,6 +117,11 @@ class ToolExecutor:
                     # Make tool name human-readable
                     display_name = tool_name.replace('_', ' ').title()
                     print(f"  ✅ {display_name} completed successfully")
+                
+                # Log to history for important operations
+                if tool_name in ["create_file", "delete_file", "modify_file", 
+                                 "git_commit", "git_branch", "git_revert"]:
+                    self._log_operation(tool_name, args, success, output)
                 
                 log.debug(f"{tool_name} completed")
                 return result
@@ -355,3 +372,102 @@ class ToolExecutor:
             print('\n'.join(output_lines[-max_lines//2:]))
         else:
             print('\n'.join(output_lines))
+    
+    def _execute_git_commit(self, tool_def: ToolDefinition, args: Dict) -> Tuple[str, bool]:
+        """Execute git_commit with confirmation."""
+        message = args["message"]
+        add_all = args.get("add_all", False)
+        
+        if self.dry_run:
+            print(f"  → [DRY RUN] Would commit with message: {message}")
+            return f"[DRY RUN] Would create commit", True
+        
+        # Ask for confirmation if needed
+        if not self.auto_yes and tool_def.needs_confirmation:
+            prompt = get_confirmation_prompt("git_commit", message=message, add_all=add_all)
+            if input(prompt).lower() not in ("y", "yes"):
+                return "User declined commit", False
+        
+        # Execute commit
+        result = tool_def.handler(self.root, message, add_all)
+        output = tool_def.formatter(result) if tool_def.formatter else str(result)
+        return output, "error" not in result
+    
+    def _execute_git_branch(self, tool_def: ToolDefinition, args: Dict) -> Tuple[str, bool]:
+        """Execute git_branch with conditional confirmation."""
+        action = args.get("action", "list")
+        name = args.get("name")
+        force = args.get("force", False)
+        
+        # Only confirm for destructive actions
+        needs_confirm = action in ["delete", "switch"]
+        
+        if self.dry_run and needs_confirm:
+            print(f"  → [DRY RUN] Would {action} branch: {name}")
+            return f"[DRY RUN] Would {action} branch", True
+        
+        # Ask for confirmation if needed
+        if not self.auto_yes and needs_confirm and tool_def.needs_confirmation:
+            prompt = get_confirmation_prompt("git_branch", action=action, name=name)
+            if input(prompt).lower() not in ("y", "yes"):
+                return f"User declined branch {action}", False
+        
+        # Execute branch operation
+        result = tool_def.handler(self.root, action, name, force)
+        output = tool_def.formatter(result) if tool_def.formatter else str(result)
+        return output, "error" not in result
+    
+    def _execute_git_revert(self, tool_def: ToolDefinition, args: Dict) -> Tuple[str, bool]:
+        """Execute git_revert with confirmation."""
+        target = args["target"]
+        revert_type = args.get("type", "file")
+        
+        if self.dry_run:
+            print(f"  → [DRY RUN] Would revert {revert_type}: {target}")
+            return f"[DRY RUN] Would revert {revert_type}", True
+        
+        # Ask for confirmation
+        if not self.auto_yes and tool_def.needs_confirmation:
+            prompt = get_confirmation_prompt("git_revert", target=target, type=revert_type)
+            if input(prompt).lower() not in ("y", "yes"):
+                return "User declined revert", False
+        
+        # Execute revert
+        result = tool_def.handler(self.root, target, revert_type)
+        output = tool_def.formatter(result) if tool_def.formatter else str(result)
+        return output, "error" not in result
+    
+    def _init_history(self):
+        """Initialize the .ronin_history file if it doesn't exist."""
+        self.history_file = self.root / ".ronin_history"
+        if not self.history_file.exists():
+            try:
+                self.history_file.write_text(json.dumps({
+                    "created": datetime.now().isoformat(),
+                    "operations": []
+                }, indent=2))
+            except Exception as e:
+                logger.warning(f"Failed to create .ronin_history: {e}")
+    
+    def _log_operation(self, tool_name: str, args: Dict, success: bool, result: str):
+        """Log an operation to .ronin_history."""
+        try:
+            # Read existing history
+            history = json.loads(self.history_file.read_text())
+            
+            # Add new operation
+            operation = {
+                "timestamp": datetime.now().isoformat(),
+                "tool": tool_name,
+                "args": args,
+                "success": success,
+                "result_summary": result[:200] if len(result) > 200 else result
+            }
+            
+            # Append operation to history
+            history["operations"].append(operation)
+            
+            # Write back
+            self.history_file.write_text(json.dumps(history, indent=2))
+        except Exception as e:
+            logger.warning(f"Failed to log operation to history: {e}")

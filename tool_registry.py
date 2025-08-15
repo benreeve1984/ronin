@@ -102,6 +102,289 @@ def format_file_modification(info: Dict) -> str:
         f"  - Lines: {info['old_lines']} → {info['new_lines']} ({info['line_change']:+d})"
     )
 
+def format_git_status(result: Dict) -> str:
+    """Format git status output in an AI-friendly way."""
+    if "error" in result:
+        return f"Git Error: {result['error']}\nImplication: Not in a git repository or git is not available."
+    
+    output = []
+    
+    # Current branch context
+    if result.get("branch"):
+        output.append(f"Current branch: {result['branch']}")
+        if result['branch'] == "main" or result['branch'] == "master":
+            output.append("  → You are on the main branch (primary codebase)")
+        else:
+            output.append(f"  → You are on a feature/experimental branch")
+    
+    if result.get("ahead_behind"):
+        output.append(f"Branch sync status: {result['ahead_behind']}")
+        if "ahead" in result['ahead_behind']:
+            output.append("  → Local commits not yet pushed to remote")
+        if "behind" in result['ahead_behind']:
+            output.append("  → Remote has commits you don't have locally")
+    
+    # File status with clear explanations
+    has_changes = False
+    
+    if result.get("staged"):
+        has_changes = True
+        output.append("\n📦 STAGED (ready to commit):")
+        for file in result["staged"]:
+            output.append(f"  ✓ {file}")
+        output.append(f"  → These {len(result['staged'])} file(s) will be included in the next commit")
+    
+    if result.get("modified"):
+        has_changes = True
+        output.append("\n✏️ MODIFIED (not staged):")
+        for file in result["modified"]:
+            output.append(f"  M {file}")
+        output.append(f"  → These {len(result['modified'])} file(s) have changes but won't be committed unless staged")
+        output.append("  → Use git_commit with add_all=True to include them")
+    
+    if result.get("untracked"):
+        has_changes = True
+        output.append("\n🆕 UNTRACKED (not in git):")
+        for file in result["untracked"]:
+            output.append(f"  ? {file}")
+        output.append(f"  → These {len(result['untracked'])} file(s) are new and not tracked by git")
+        output.append("  → They will be ignored unless explicitly added")
+    
+    if not has_changes:
+        output.append("\n✅ Working tree is clean")
+        output.append("  → No uncommitted changes")
+        output.append("  → Safe to switch branches or pull updates")
+    else:
+        output.append("\n💡 Summary: You have uncommitted changes")
+        output.append("  → Consider committing to save current state")
+        output.append("  → Users may want to revert these changes later")
+    
+    return "\n".join(output)
+
+def format_git_diff(result: Dict) -> str:
+    """Format git diff output in an AI-friendly way."""
+    if "error" in result:
+        return f"Git Error: {result['error']}\nImplication: Could not generate diff. Check if files exist and repository is valid."
+    
+    if not result.get("diff"):
+        return "No changes detected\n  → Files are identical to comparison point\n  → Nothing to commit or review"
+    
+    diff_text = result["diff"]
+    
+    # Parse diff to provide summary
+    lines = diff_text.split('\n')
+    files_changed = []
+    additions = 0
+    deletions = 0
+    
+    for line in lines:
+        if line.startswith('+++') or line.startswith('---'):
+            if '/' in line:
+                filename = line.split('/')[-1]
+                if filename not in files_changed and not filename.startswith('+++') and not filename.startswith('---'):
+                    files_changed.append(filename)
+        elif line.startswith('+') and not line.startswith('+++'):
+            additions += 1
+        elif line.startswith('-') and not line.startswith('---'):
+            deletions += 1
+    
+    output = []
+    output.append("📊 DIFF ANALYSIS:")
+    
+    if files_changed:
+        output.append(f"Files with changes: {', '.join(set(files_changed))}")
+    
+    if additions or deletions:
+        output.append(f"Lines added: +{additions}, Lines removed: -{deletions}")
+        net = additions - deletions
+        if net > 0:
+            output.append(f"  → Net change: +{net} lines (code expanded)")
+        elif net < 0:
+            output.append(f"  → Net change: {net} lines (code reduced)")
+        else:
+            output.append(f"  → Net change: 0 lines (code refactored)")
+    
+    output.append("\n📝 DETAILED CHANGES:")
+    output.append(diff_text)
+    
+    output.append("\n💡 INTERPRETATION:")
+    output.append("  → Review changes above before committing")
+    output.append("  → '+' lines are additions, '-' lines are deletions")
+    output.append("  → Use git_commit to save these changes permanently")
+    
+    return "\n".join(output)
+
+def format_git_commit(result: Dict) -> str:
+    """Format git commit result in an AI-friendly way."""
+    if "error" in result:
+        error_msg = result['error']
+        if "nothing to commit" in error_msg.lower():
+            return "❌ No changes to commit\n  → Working directory is clean\n  → Make some modifications first"
+        elif "nothing staged" in error_msg.lower():
+            return "❌ No staged changes\n  → Files are modified but not staged\n  → Use git_commit with add_all=True to include all changes"
+        else:
+            return f"Git Error: {error_msg}\n  → Check repository status with git_status"
+    
+    output = ["✅ COMMIT SUCCESSFUL!"]
+    
+    if result.get("commit_hash"):
+        output.append(f"\n📌 Commit ID: {result['commit_hash'][:8]}")
+        output.append(f"  → This is your restoration point")
+        output.append(f"  → Use this ID to revert if needed: git_revert(target='{result['commit_hash'][:8]}', type='commit')")
+    
+    if result.get("message"):
+        output.append(f"\n💬 Message: {result['message']}")
+    
+    stats = []
+    if result.get("files_changed"):
+        stats.append(f"{result['files_changed']} file(s)")
+    if result.get("insertions"):
+        stats.append(f"+{result['insertions']} additions")
+    if result.get("deletions"):
+        stats.append(f"-{result['deletions']} deletions")
+    
+    if stats:
+        output.append(f"\n📈 Changes saved: {', '.join(stats)}")
+    
+    output.append("\n💡 WHAT THIS MEANS:")
+    output.append("  → Your changes are now saved in git history")
+    output.append("  → Users can revert to this point if needed")
+    output.append("  → Continue working - you have a safety checkpoint")
+    
+    return "\n".join(output)
+
+def format_git_log(result: Dict) -> str:
+    """Format git log output in an AI-friendly way."""
+    if "error" in result:
+        return f"Git Error: {result['error']}\n  → Repository may not have any commits yet"
+    
+    if not result.get("commits"):
+        return "📭 No commits found\n  → This might be a new repository\n  → Start by making your first commit"
+    
+    output = ["📜 COMMIT HISTORY (most recent first):"]
+    output.append(f"  Showing {len(result['commits'])} most recent commits\n")
+    
+    for i, commit in enumerate(result["commits"]):
+        # Mark the most recent commit specially
+        if i == 0:
+            output.append(f"🔵 LATEST: {commit['hash'][:8]} - {commit['message']}")
+            output.append("  ↑ Current state of the repository")
+        else:
+            output.append(f"⚪ {commit['hash'][:8]} - {commit['message']}")
+        
+        output.append(f"   Author: {commit['author']}")
+        output.append(f"   Date: {commit['date']}")
+        
+        if commit.get("files"):
+            files_str = ', '.join(commit['files'][:3])
+            if len(commit['files']) > 3:
+                files_str += f" + {len(commit['files']) - 3} more"
+            output.append(f"   Files: {files_str}")
+        output.append("")
+    
+    output.append("💡 UNDERSTANDING THE HISTORY:")
+    output.append("  → Each commit is a saved checkpoint")
+    output.append("  → You can revert to any commit using its ID")
+    output.append("  → Most recent work is at the top")
+    
+    # Analyze commit patterns
+    if len(result['commits']) > 1:
+        messages = [c['message'].lower() for c in result['commits'][:5]]
+        if any('fix' in m for m in messages):
+            output.append("  → Recent fixes suggest active debugging")
+        if any('add' in m or 'feature' in m for m in messages):
+            output.append("  → Recent feature additions detected")
+    
+    return "\n".join(output)
+
+def format_git_branch(result: Dict) -> str:
+    """Format git branch operations in an AI-friendly way."""
+    if "error" in result:
+        error_msg = result['error']
+        if "not found" in error_msg.lower():
+            return f"❌ Branch not found: {error_msg}\n  → Check available branches with git_branch(action='list')"
+        elif "not fully merged" in error_msg.lower():
+            return f"❌ Branch has unmerged changes\n  → Use force=True to delete anyway (data loss risk!)"
+        else:
+            return f"Git Error: {error_msg}"
+    
+    if result.get("action") == "list":
+        output = ["🌳 AVAILABLE BRANCHES:"]
+        
+        current_branch = None
+        other_branches = []
+        
+        for branch in result.get("branches", []):
+            if branch.get("current"):
+                current_branch = branch['name']
+            else:
+                other_branches.append(branch['name'])
+        
+        if current_branch:
+            output.append(f"\n🔵 Current: {current_branch}")
+            output.append("  ↑ You are here")
+        
+        if other_branches:
+            output.append("\n⚪ Other branches:")
+            for branch in other_branches:
+                output.append(f"  - {branch}")
+                if "main" in branch or "master" in branch:
+                    output.append("    → Main branch (stable code)")
+                elif "dev" in branch:
+                    output.append("    → Development branch")
+                elif "feature" in branch:
+                    output.append("    → Feature branch")
+        
+        output.append("\n💡 BRANCH MANAGEMENT:")
+        output.append("  → Switch branches to work on different features")
+        output.append("  → Create branches for experimental changes")
+        output.append("  → Main/master branch should stay stable")
+        
+        return "\n".join(output)
+        
+    elif result.get("action") == "create":
+        return f"✅ Created branch: {result['branch']}\n  → New branch created from current position\n  → Use git_branch(action='switch', name='{result['branch']}') to switch to it"
+        
+    elif result.get("action") == "switch":
+        return f"✅ Switched to branch: {result['branch']}\n  → Now working on {result['branch']}\n  → Changes will be isolated to this branch\n  → Previous branch state is preserved"
+        
+    elif result.get("action") == "delete":
+        return f"✅ Deleted branch: {result['branch']}\n  → Branch removed permanently\n  → Cannot be recovered unless pushed to remote"
+    
+    return str(result)
+
+def format_git_revert(result: Dict) -> str:
+    """Format git revert operations in an AI-friendly way."""
+    if "error" in result:
+        error_msg = result['error']
+        if "does not exist" in error_msg.lower():
+            return f"❌ Target not found: {error_msg}\n  → Check file paths or commit IDs\n  → Use git_log to see available commits"
+        else:
+            return f"Git Error: {error_msg}\n  → Operation failed - no changes made"
+    
+    if result.get("action") == "file":
+        return (f"✅ REVERTED FILE: {result['file']}\n"
+                f"  → File restored to last committed state\n"
+                f"  → All uncommitted changes in this file are gone\n"
+                f"  → Use git_diff to see what was reverted")
+                
+    elif result.get("action") == "commit":
+        output = [f"✅ REVERTED COMMIT: {result['commit'][:8]}"]
+        if result.get('new_commit'):
+            output.append(f"\n📌 New revert commit: {result['new_commit'][:8]}")
+            output.append("  → Created a new commit that undoes the target commit")
+            output.append("  → Original commit still exists in history")
+            output.append("  → You can revert this revert if needed")
+        
+        output.append("\n💡 WHAT HAPPENED:")
+        output.append("  → Changes from the target commit were undone")
+        output.append("  → This is recorded as a new commit")
+        output.append("  → History shows both original and revert")
+        
+        return "\n".join(output)
+    
+    return str(result)
+
 # ============================================================================
 # TOOL DEFINITIONS - Add new tools here!
 # ============================================================================
@@ -257,6 +540,138 @@ TOOLS = {
         handler=tools.modify_file,
         formatter=format_file_modification,
         needs_confirmation=True  # Ask before modifying
+    ),
+    
+    # ============================================================================
+    # GIT TOOLS - Version control integration
+    # ============================================================================
+    
+    "git_status": ToolDefinition(
+        name="git_status",
+        description="Check git repository status. Shows branch, staged/modified/untracked files.",
+        category="git",
+        parameters={},
+        handler=tools.git_status,
+        formatter=format_git_status,
+        needs_confirmation=False
+    ),
+    
+    "git_diff": ToolDefinition(
+        name="git_diff",
+        description="Show changes in files. Can show staged changes, unstaged changes, or changes between commits.",
+        category="git",
+        parameters={
+            "staged": {
+                "type": "boolean",
+                "default": False,
+                "description": "Show staged changes (--cached). Default: show unstaged"
+            },
+            "file": {
+                "type": "string",
+                "description": "Specific file to diff. Default: all files"
+            },
+            "commit": {
+                "type": "string",
+                "description": "Compare with specific commit. Default: working tree"
+            }
+        },
+        handler=tools.git_diff,
+        formatter=format_git_diff,
+        needs_confirmation=False
+    ),
+    
+    "git_commit": ToolDefinition(
+        name="git_commit",
+        description="Create a git commit with staged changes. Automatically stages modified files if needed.",
+        category="git",
+        parameters={
+            "message": {
+                "type": "string",
+                "description": "Commit message",
+                "required": True
+            },
+            "add_all": {
+                "type": "boolean",
+                "default": False,
+                "description": "Stage all modified files before commit (-a). Default: False"
+            }
+        },
+        handler=tools.git_commit,
+        formatter=format_git_commit,
+        needs_confirmation=True  # Ask before committing
+    ),
+    
+    "git_log": ToolDefinition(
+        name="git_log",
+        description="View commit history. Shows recent commits with messages, authors, and files changed.",
+        category="git",
+        parameters={
+            "limit": {
+                "type": "number",
+                "default": 10,
+                "description": "Number of commits to show. Default: 10"
+            },
+            "oneline": {
+                "type": "boolean",
+                "default": False,
+                "description": "Compact one-line format. Default: False"
+            },
+            "file": {
+                "type": "string",
+                "description": "Show commits affecting specific file. Default: all files"
+            }
+        },
+        handler=tools.git_log,
+        formatter=format_git_log,
+        needs_confirmation=False
+    ),
+    
+    "git_branch": ToolDefinition(
+        name="git_branch",
+        description="Manage git branches. List, create, switch, or delete branches.",
+        category="git",
+        parameters={
+            "action": {
+                "type": "string",
+                "enum": ["list", "create", "switch", "delete"],
+                "default": "list",
+                "description": "Branch operation: list, create, switch, or delete"
+            },
+            "name": {
+                "type": "string",
+                "description": "Branch name (required for create/switch/delete)"
+            },
+            "force": {
+                "type": "boolean",
+                "default": False,
+                "description": "Force delete even if not merged (for delete action)"
+            }
+        },
+        handler=tools.git_branch,
+        formatter=format_git_branch,
+        needs_confirmation=True  # Confirm for create/switch/delete, but handler can skip for list
+    ),
+    
+    "git_revert": ToolDefinition(
+        name="git_revert",
+        description="Revert changes. Can revert uncommitted changes in a file or revert an entire commit.",
+        category="git",
+        parameters={
+            "target": {
+                "type": "string",
+                "description": "File path to revert, or commit hash to revert",
+                "required": True
+            },
+            "type": {
+                "type": "string",
+                "enum": ["file", "commit"],
+                "default": "file",
+                "description": "Revert type: 'file' for uncommitted changes, 'commit' for entire commit"
+            }
+        },
+        handler=tools.git_revert,
+        formatter=format_git_revert,
+        needs_confirmation=True  # Always confirm reverts
     )
 }
 

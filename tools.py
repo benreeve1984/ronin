@@ -473,3 +473,381 @@ def search_files(root: Path, text: str, pattern: str = "*",
             continue
     
     return results
+
+# ============================================================================
+# GIT INTEGRATION - Version control operations
+# ============================================================================
+
+import subprocess
+import json
+from datetime import datetime
+
+def run_git_command(root: Path, command: List[str]) -> Tuple[bool, str, str]:
+    """Run a git command and return success, stdout, stderr.
+    
+    Args:
+        root: Project root directory  
+        command: Git command as list (e.g., ["status", "--porcelain"])
+        
+    Returns:
+        Tuple of (success, stdout, stderr)
+    """
+    try:
+        result = subprocess.run(
+            ["git"] + command,
+            cwd=root,
+            capture_output=True,
+            text=True,
+            timeout=30
+        )
+        return result.returncode == 0, result.stdout, result.stderr
+    except subprocess.TimeoutExpired:
+        return False, "", "Git command timed out"
+    except FileNotFoundError:
+        return False, "", "Git is not installed or not in PATH"
+    except Exception as e:
+        return False, "", str(e)
+
+@trace_tool(name="git_status", metadata={"category": "git"})
+def git_status(root: Path) -> Dict:
+    """Check git repository status.
+    
+    Args:
+        root: Project root directory
+        
+    Returns:
+        Dict with branch, staged, modified, and untracked files
+    """
+    # Check if we're in a git repo
+    success, _, _ = run_git_command(root, ["rev-parse", "--git-dir"])
+    if not success:
+        return {"error": "Not in a git repository"}
+    
+    result = {}
+    
+    # Get current branch
+    success, branch, _ = run_git_command(root, ["branch", "--show-current"])
+    if success:
+        result["branch"] = branch.strip()
+    
+    # Get ahead/behind status
+    success, tracking, _ = run_git_command(root, ["status", "-sb"])
+    if success and ("ahead" in tracking or "behind" in tracking):
+        # Extract ahead/behind from first line
+        first_line = tracking.split('\n')[0]
+        if '[' in first_line and ']' in first_line:
+            result["ahead_behind"] = first_line[first_line.index('['):first_line.index(']')+1]
+    
+    # Get file statuses
+    success, status, _ = run_git_command(root, ["status", "--porcelain"])
+    if success:
+        staged = []
+        modified = []
+        untracked = []
+        
+        for line in status.splitlines():
+            if not line:
+                continue
+            status_code = line[:2]
+            filename = line[3:]
+            
+            if status_code[0] in "MADRC":  # Staged
+                staged.append(filename)
+            if status_code[1] == "M":  # Modified
+                modified.append(filename)
+            elif status_code == "??":  # Untracked
+                untracked.append(filename)
+        
+        if staged:
+            result["staged"] = staged
+        if modified:
+            result["modified"] = modified
+        if untracked:
+            result["untracked"] = untracked
+    
+    return result
+
+@trace_tool(name="git_diff", metadata={"category": "git"})
+def git_diff(root: Path, staged: bool = False, file: Optional[str] = None, 
+             commit: Optional[str] = None) -> Dict:
+    """Show git diff output.
+    
+    Args:
+        root: Project root directory
+        staged: Show staged changes instead of unstaged
+        file: Specific file to diff
+        commit: Compare with specific commit
+        
+    Returns:
+        Dict with diff output
+    """
+    cmd = ["diff"]
+    
+    if staged:
+        cmd.append("--cached")
+    
+    if commit:
+        cmd.append(commit)
+    
+    if file:
+        # Validate file path stays in sandbox
+        try:
+            file_path = (root / file).resolve()
+            file_path.relative_to(root)
+            cmd.append(str(file))
+        except ValueError:
+            return {"error": f"File path '{file}' is outside project root"}
+    
+    success, diff, error = run_git_command(root, cmd)
+    
+    if not success:
+        return {"error": error or "Failed to get diff"}
+    
+    return {"diff": diff if diff else "No changes"}
+
+@trace_tool(name="git_commit", metadata={"category": "git"})
+def git_commit(root: Path, message: str, add_all: bool = False) -> Dict:
+    """Create a git commit.
+    
+    Args:
+        root: Project root directory
+        message: Commit message
+        add_all: Stage all modified files before commit
+        
+    Returns:
+        Dict with commit result
+    """
+    if not message:
+        return {"error": "Commit message is required"}
+    
+    # Add files if requested
+    if add_all:
+        success, _, error = run_git_command(root, ["add", "-A"])
+        if not success:
+            return {"error": f"Failed to stage files: {error}"}
+    
+    # Check if there's anything to commit
+    success, status, _ = run_git_command(root, ["status", "--porcelain"])
+    if success and not status:
+        return {"error": "Nothing to commit, working tree clean"}
+    
+    # Create commit
+    success, output, error = run_git_command(root, ["commit", "-m", message])
+    
+    if not success:
+        if "nothing to commit" in error or "nothing to commit" in output:
+            return {"error": "Nothing staged for commit"}
+        return {"error": error or "Failed to create commit"}
+    
+    # Get commit details
+    result = {"message": message}
+    
+    # Get commit hash
+    success, hash_out, _ = run_git_command(root, ["rev-parse", "HEAD"])
+    if success:
+        result["commit_hash"] = hash_out.strip()
+    
+    # Parse commit output for stats
+    for line in output.splitlines():
+        if "file" in line and "changed" in line:
+            parts = line.split(",")
+            for part in parts:
+                part = part.strip()
+                if "file" in part:
+                    result["files_changed"] = int(part.split()[0])
+                elif "insertion" in part:
+                    result["insertions"] = int(part.split()[0])
+                elif "deletion" in part:
+                    result["deletions"] = int(part.split()[0])
+    
+    return result
+
+@trace_tool(name="git_log", metadata={"category": "git"})
+def git_log(root: Path, limit: int = 10, oneline: bool = False, 
+            file: Optional[str] = None) -> Dict:
+    """View git commit history.
+    
+    Args:
+        root: Project root directory
+        limit: Number of commits to show
+        oneline: Use compact format
+        file: Show commits for specific file
+        
+    Returns:
+        Dict with commit history
+    """
+    cmd = ["log", f"-{limit}"]
+    
+    if oneline:
+        cmd.append("--oneline")
+    else:
+        # Use a format that's easy to parse
+        cmd.extend(["--pretty=format:%H|%an|%ae|%ad|%s", "--date=short"])
+    
+    if file:
+        # Validate file path
+        try:
+            file_path = (root / file).resolve()
+            file_path.relative_to(root)
+            cmd.extend(["--", str(file)])
+        except ValueError:
+            return {"error": f"File path '{file}' is outside project root"}
+    
+    success, log_output, error = run_git_command(root, cmd)
+    
+    if not success:
+        return {"error": error or "Failed to get log"}
+    
+    if not log_output:
+        return {"commits": []}
+    
+    commits = []
+    
+    if oneline:
+        for line in log_output.splitlines():
+            if line:
+                parts = line.split(" ", 1)
+                commits.append({
+                    "hash": parts[0],
+                    "message": parts[1] if len(parts) > 1 else ""
+                })
+    else:
+        for line in log_output.splitlines():
+            if line:
+                parts = line.split("|")
+                if len(parts) >= 5:
+                    commit = {
+                        "hash": parts[0],
+                        "author": parts[1],
+                        "email": parts[2],
+                        "date": parts[3],
+                        "message": parts[4]
+                    }
+                    
+                    # Get files changed for this commit
+                    success, files, _ = run_git_command(
+                        root, 
+                        ["diff-tree", "--no-commit-id", "--name-only", "-r", parts[0]]
+                    )
+                    if success and files:
+                        commit["files"] = files.strip().splitlines()
+                    
+                    commits.append(commit)
+    
+    return {"commits": commits}
+
+@trace_tool(name="git_branch", metadata={"category": "git"})
+def git_branch(root: Path, action: str = "list", name: Optional[str] = None, 
+               force: bool = False) -> Dict:
+    """Manage git branches.
+    
+    Args:
+        root: Project root directory
+        action: Operation - list, create, switch, delete
+        name: Branch name (for create/switch/delete)
+        force: Force delete even if not merged
+        
+    Returns:
+        Dict with branch operation result
+    """
+    if action == "list":
+        success, branches, error = run_git_command(root, ["branch", "-a"])
+        if not success:
+            return {"error": error or "Failed to list branches"}
+        
+        branch_list = []
+        for line in branches.splitlines():
+            if line:
+                is_current = line.startswith("*")
+                branch_name = line[2:].strip() if is_current else line.strip()
+                branch_list.append({
+                    "name": branch_name,
+                    "current": is_current
+                })
+        
+        return {"action": "list", "branches": branch_list}
+    
+    elif action in ["create", "switch", "delete"]:
+        if not name:
+            return {"error": f"Branch name required for {action}"}
+        
+        if action == "create":
+            success, _, error = run_git_command(root, ["branch", name])
+            if not success:
+                return {"error": error or f"Failed to create branch '{name}'"}
+            return {"action": "create", "branch": name}
+        
+        elif action == "switch":
+            # Try checkout first (works on older git)
+            success, _, error = run_git_command(root, ["checkout", name])
+            if not success:
+                # Try switch (newer git command)
+                success, _, error = run_git_command(root, ["switch", name])
+            
+            if not success:
+                return {"error": error or f"Failed to switch to branch '{name}'"}
+            return {"action": "switch", "branch": name}
+        
+        elif action == "delete":
+            cmd = ["branch"]
+            cmd.append("-D" if force else "-d")
+            cmd.append(name)
+            
+            success, _, error = run_git_command(root, cmd)
+            if not success:
+                return {"error": error or f"Failed to delete branch '{name}'"}
+            return {"action": "delete", "branch": name}
+    
+    else:
+        return {"error": f"Unknown action: {action}"}
+
+@trace_tool(name="git_revert", metadata={"category": "git"})
+def git_revert(root: Path, target: str, type: str = "file") -> Dict:
+    """Revert changes in git.
+    
+    Args:
+        root: Project root directory
+        target: File path or commit hash
+        type: 'file' to revert file changes, 'commit' to revert a commit
+        
+    Returns:
+        Dict with revert result
+    """
+    if type == "file":
+        # Validate file path
+        try:
+            file_path = (root / target).resolve()
+            file_path.relative_to(root)
+        except ValueError:
+            return {"error": f"File path '{target}' is outside project root"}
+        
+        # Check if file exists
+        if not file_path.exists():
+            return {"error": f"File '{target}' does not exist"}
+        
+        # Revert file to last committed state
+        success, _, error = run_git_command(root, ["checkout", "HEAD", "--", target])
+        
+        if not success:
+            return {"error": error or f"Failed to revert '{target}'"}
+        
+        return {"action": "file", "file": target}
+    
+    elif type == "commit":
+        # Revert a commit
+        success, _, error = run_git_command(root, ["revert", target, "--no-edit"])
+        
+        if not success:
+            return {"error": error or f"Failed to revert commit '{target}'"}
+        
+        # Get new commit hash
+        success, new_hash, _ = run_git_command(root, ["rev-parse", "HEAD"])
+        
+        result = {"action": "commit", "commit": target}
+        if success:
+            result["new_commit"] = new_hash.strip()
+        
+        return result
+    
+    else:
+        return {"error": f"Unknown revert type: {type}"}
