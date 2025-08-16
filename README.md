@@ -1,8 +1,28 @@
 # 🥷 Ronin
 
-A minimal, powerful CLI agent that brings LLM capabilities directly to your command line. Built with Claude's API, Ronin executes file operations, automates system tasks, and manages your workflows through natural language commands.
+A minimal, powerful CLI agent that brings LLM capabilities directly to your command line. Built with Claude's API, Ronin executes file operations, automates system tasks, manages your workflows through natural language commands, and now includes comprehensive Git integration.
 
-> **What Ronin Does**: Ronin is your intelligent CLI agent that directly executes tasks in your terminal. It specializes in file management, text processing, search operations, and system automation. Currently focused on text files with plans to expand to more formats, tools, and integrations.
+> **What Ronin Does**: Ronin is your intelligent CLI agent that directly executes tasks in your terminal. It specializes in file management, text processing, search operations, Git version control, and system automation. Currently focused on text files with plans to expand to more formats, tools, and integrations.
+
+## 🎉 Recent Updates (v0.2.0)
+
+### Git Integration Complete! 
+- All 7 Git tools implemented with AI-friendly formatting
+- Smart commit messages with context awareness
+- Branch management and history viewing
+- Safe revert operations with confirmation
+
+### Test Suite Added!
+- 40+ unit tests for core functionality
+- Integration tests for complex workflows
+- CI/CD pipeline with GitHub Actions
+- Test coverage reporting
+
+### Developer Experience
+- `CLAUDE.md` file for AI-assisted development
+- Improved error messages with recovery hints
+- Operation history tracking in `.ronin_history`
+- Better path validation and sandboxing
 
 ## ✨ Features
 
@@ -13,7 +33,9 @@ A minimal, powerful CLI agent that brings LLM capabilities directly to your comm
 - **Safe Execution** - Sandboxed operations, confirmation prompts, and dry-run mode
 - **Powerful File Search** - Fast, grep-like search across your entire filesystem
 - **Precision File Editing** - Modify files using anchor text or line-based operations
+- **Git Integration** - Full Git support: init, status, diff, commit, branch, log, and revert
 - **Secure API Key Storage** - Store keys once, use everywhere
+- **Comprehensive Test Suite** - Test-driven development with 40+ passing tests
 
 ### Why Ronin?
 - **Direct Execution** - Ronin performs operations directly in your terminal, no intermediate code generation
@@ -59,6 +81,12 @@ Ronin "list all markdown files in docs/"
 Ronin "find and show all TODO comments in my project"
 Ronin "search for API endpoints in the config files"
 
+# Git operations (NEW!)
+Ronin "show me the git status"
+Ronin "commit all changes with message 'Add new feature'"
+Ronin "create a new branch called feature/auth"
+Ronin "show the last 5 commits"
+
 # Automate multi-step tasks
 Ronin "organize these log files by date"
 Ronin "extract all email addresses from these documents"
@@ -93,13 +121,22 @@ In interactive mode:
 
 ## 🛠️ Available Operations
 
-Ronin executes these CLI operations:
+### File Operations
 - **List Files** - Find and enumerate files by pattern or extension
 - **Read Files** - Display file contents with optional line ranges
 - **Create Files** - Generate new files with specified content
 - **Delete Files** - Remove files with safety checks
 - **Modify Files** - Edit files using anchor text or line positions
 - **Search Files** - Grep-like search across your filesystem with context
+
+### Git Operations (NEW! ✨)
+- **Git Init** - Initialize a new repository with custom initial branch
+- **Git Status** - Check repository status with AI-friendly formatting
+- **Git Diff** - View changes with context and explanations
+- **Git Commit** - Create commits with automatic staging options
+- **Git Branch** - Manage branches: list, create, switch, delete
+- **Git Log** - View commit history with file changes
+- **Git Revert** - Undo changes to files or entire commits
 
 *Note: Ronin automatically ignores common directories like `.venv`, `node_modules`, `__pycache__`, `.git`, etc. when listing or searching files.*
 
@@ -221,14 +258,19 @@ When a LangSmith API key is configured:
 - ✅ Interactive chat mode
 - ✅ Secure API key management
 - ✅ Structured logging
+- ✅ Git operations (init, status, diff, commit, branch, log, revert)
+- ✅ Comprehensive test suite with CI/CD
+- ✅ Operation history tracking (`.ronin_history`)
+- ✅ AI-friendly error messages with recovery hints
 
 ### Coming Soon
 - 🔄 Binary file support (images, PDFs, spreadsheets)
-- 🔄 Git operations (commit, branch, merge)
+- 🔄 Enhanced file type support (more programming languages)
 - 🔄 Shell command execution
 - 🔄 Web browsing and API calls
 - 🔄 Database connections
 - 🔄 Cloud service integrations
+- 🔄 MCP server integration for tool expansion
 
 ### Future Vision
 - 📋 Project-wide transformations
@@ -256,6 +298,32 @@ TOOLS["my_tool"] = ToolDefinition(
 )
 ```
 
+## 🧪 Testing
+
+Ronin includes a comprehensive test suite to ensure reliability:
+
+```bash
+# Install test dependencies
+pip install -e ".[test]"
+
+# Run all tests
+pytest
+
+# Run with coverage
+pytest --cov=. --cov-report=html
+
+# Run specific test categories
+pytest tests/unit              # Unit tests only
+pytest tests/integration       # Integration tests
+pytest -m "not slow"           # Skip slow tests
+```
+
+The test suite includes:
+- Unit tests for all tool handlers
+- Integration tests for ChatSession and ToolExecutor
+- Mock tests for Claude API interactions
+- GitHub Actions CI/CD pipeline for automated testing
+
 ## 🤝 Contributing
 
 Contributions are welcome! We're especially looking for:
@@ -269,8 +337,11 @@ How to contribute:
 1. Fork the repository
 2. Create a feature branch
 3. Make your changes
-4. Add tests if applicable
-5. Submit a pull request
+4. **Add tests for new features** (required!)
+5. Run the test suite: `pytest`
+6. Submit a pull request
+
+**Important**: All new features must include tests. See `CLAUDE.md` for development guidelines.
 
 ## 📝 License
 
