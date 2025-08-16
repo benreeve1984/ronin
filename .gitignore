@@ -70,9 +70,10 @@ temp/
 # Project Specific
 *.md.backup
 *.txt.backup
-test_*.py
-test_*.md
-test_*.txt
+# Don't ignore test files in tests directory
+# test_*.py
+# test_*.md
+# test_*.txt
 
 # Package files
 *.tar.gz
